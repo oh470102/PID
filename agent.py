@@ -17,7 +17,11 @@ class SACAgent:
         self.ACTOR_LEARNING_RATE = 9e-4
         self.CRITIC_LEARNING_RATE = 9e-4
         self.TAU = 5e-3
-        self.ALPHA = 0.6       # sensitive
+        self.ALPHA = 0.5       # sensitive
+
+        self.KP_list = []
+        self.KD_list = []
+        self.KI_list = []
  
         self.env = env
         self.state_dim = env.observation_space.shape[0]
@@ -62,7 +66,8 @@ class SACAgent:
             action = self.get_action(torch.from_numpy(init_state).to(torch.float32))
             action = np.clip(action, 0, self.action_bound)
             action = list(action)
-
+            self.KP_list.append(action[0]); self.KD_list.append([action[1]]); self.KI_list.append(action[2])
+        
             traj, reward, _ = self.env.linstep(action)
 
             self.buffer.add_buffer(init_state, action, reward, True)
@@ -84,6 +89,11 @@ class SACAgent:
             
         if save == True:
             self.save_agent()
+
+        # plt.plot(self.KP_list)
+        # plt.plot(self.KD_list)
+        # plt.plot(self.KI_list)
+        # plt.show()
 
         return self.save_epi_reward
     
