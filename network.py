@@ -18,10 +18,10 @@ class Actor(nn.Module):
         self.action_bound = action_bound
         self.std_bound = [1e-6, 1.0]
 
-        # state_dim = 4
-        self.l1 = nn.Linear(4, 64) 
+        # state_dim = 7
+        self.l1 = nn.Linear(11, 128) 
         self.ln_1 = nn.LayerNorm(64)
-        self.l2 = nn.Linear(64, 64)
+        self.l2 = nn.Linear(128, 64)
         self.ln_2 = nn.LayerNorm(64)
         self.l3 = nn.Linear(64, 16)
         self.ln_3 = nn.LayerNorm(16)
@@ -34,9 +34,9 @@ class Actor(nn.Module):
 
 
     def forward(self, x):
-        x = F.relu(self.ln_1(self.l1(x)))
-        x = F.relu(self.ln_2(self.l2(x)))
-        x = F.relu(self.ln_3(self.l3(x)))
+        x = F.relu(self.l1(x))
+        x = F.relu(self.l2(x))
+        x = F.relu(self.l3(x))
 
         mu = torch.tanh(self.mu(x))
         std = F.softplus(self.std(x))
@@ -69,11 +69,11 @@ class Critic(nn.Module):
         self.v1 = nn.Linear(self.state_dim, 32)
         self.a1 = nn.Linear(self.action_dim, 32)
 
-        self.l2 = nn.Linear(64, 32) # NOTE: 64 = v1.size + a1.size
+        self.l2 = nn.Linear(64, 128) # NOTE: 64 = v1.size + a1.size
         self.ln_2 = nn.LayerNorm(32)
-        self.l3 = nn.Linear(32, 32)
+        self.l3 = nn.Linear(128, 64)
         self.ln_3 = nn.LayerNorm(32)
-        self.q =  nn.Linear(32, 1)
+        self.q =  nn.Linear(64, 1)
 
         self.device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
         self.to(self.device)
@@ -83,13 +83,11 @@ class Critic(nn.Module):
         state, action = state_action[0], state_action[1]
 
         v = F.relu(self.v1(state))
-        v = F.normalize(v, p=2, dim=-1)
         a = F.relu(self.a1(action))
-        a = F.normalize(a, p=2, dim=-1)
 
         x = torch.cat([v, a], dim=-1)
-        x = F.relu(self.ln_2(self.l2(x)))
-        x = F.relu(self.ln_3(self.l3(x)))
+        x = F.relu(self.l2(x))
+        x = F.relu(self.l3(x))
         x = self.q(x)
 
         return x

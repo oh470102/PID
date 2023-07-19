@@ -17,14 +17,18 @@ def showcase(agent, env, n_showcase=3):
     for _ in range(n_episodes):
         state, _ = env.reset()
 
+        curr_PID = torch.tensor([agent.P_list[-1], agent.I_list[-1], agent.D_list[-1]], dtype=torch.float32)
         state = torch.tensor(state, dtype=torch.float32)
+        SP = torch.tensor([0, 0, 0, 0], dtype=torch.float32)
+        state = torch.cat([curr_PID, SP, state])
         action = agent.get_action(state, deterministic=True)
-        action = np.clip(action, 0, agent.action_bound)
-        action = list(action)
-        
-        print(action)
+        action = np.clip(action, -agent.action_bound, agent.action_bound)
+        action = torch.tensor(action, dtype=torch.float32)
+        P, I, D = curr_PID + action
 
-        traj, reward, _ = env.linstep(action)
+        print(P, I, D)
+
+        traj, reward, _ = env.linstep([P, I, D])
         scores.append(reward)
 
     print(f"Showcase average score: {sum(scores)/len(scores):10.2f}")

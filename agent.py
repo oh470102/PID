@@ -12,21 +12,21 @@ class SACAgent:
 
     def __init__(self, env, load=False):
         self.GAMMA = 0.99
-        self.BATCH_SIZE = 32
+        self.BATCH_SIZE = 48
         self.BUFFER_SIZE = 100_000
         self.ACTOR_LEARNING_RATE = 9e-4
         self.CRITIC_LEARNING_RATE = 9e-4
         self.TAU = 5e-3
-        self.ALPHA = 0.5       # sensitive
+        self.ALPHA = 0.25      # sensitive
 
-        self.KP_list = []
-        self.KD_list = []
-        self.KI_list = []
+        self.P_list = [50]
+        self.D_list = [10]
+        self.I_list = [10]
  
         self.env = env
-        self.state_dim = env.observation_space.shape[0]
+        self.state_dim = 3+4+4 # PID, Sp, Sp-CV
         self.action_dim = 3
-        self.action_bound = 200 # sensitive
+        self.action_bound = 0.1 # sensitive
 
         self.actor = Actor(self.action_dim, self.action_bound)
         
@@ -55,22 +55,33 @@ class SACAgent:
         self.save_epi_reward = []
 
     def train(self, max_episode_num, save=False):
+        '''
+        Let s = [P, I, D, SP, SP-CV]
+        reset returns (CV), {}
+        step returns (SP-CV), return, {}
 
+        a = [dP, dI, dD]
+        '''
         for ep in tqdm(range(max_episode_num)):
 
             if ep % 10 == 0: 
                 live_plot(self.save_epi_reward)
 
-            init_state, _ = self.env.reset() # initial state
+            init_state, _ = self.env.reset() 
+            curr_PID = np.array([x[-1] for x in [self.P_list, self.I_list, self.D_list]])
+            SP = np.array([init_state[0],0,0,0]) # desired state
+            init_state = np.concatenate((curr_PID, SP, init_state)) 
 
             action = self.get_action(torch.from_numpy(init_state).to(torch.float32))
-            action = np.clip(action, 0, self.action_bound)
-            action = list(action)
-            self.KP_list.append(action[0]); self.KD_list.append([action[1]]); self.KI_list.append(action[2])
-        
-            traj, reward, _ = self.env.linstep(action)
+            action = np.clip(action, -self.action_bound, self.action_bound)
 
-            self.buffer.add_buffer(init_state, action, reward, True)
+            P, I, D = curr_PID + np.array(action)
+            self.P_list.append(P); self.I_list.append(I); self.D_list.append(D)
+
+            _, reward, _ = self.env.linstep([P, I, D])
+            print(P, I, D)
+
+            self.buffer.add_buffer(init_state, [P, I, D], reward, True)
 
             if self.buffer.count > 100:
                 init_states, actions, rewards, dones = self.buffer.sample_batch(self.BATCH_SIZE)
@@ -89,11 +100,6 @@ class SACAgent:
             
         if save == True:
             self.save_agent()
-
-        # plt.plot(self.KP_list)
-        # plt.plot(self.KD_list)
-        # plt.plot(self.KI_list)
-        # plt.show()
 
         return self.save_epi_reward
     

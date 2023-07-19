@@ -111,7 +111,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.dprev_err = 0
 
         # how long one response takes
-        self.resp_time = 5
+        self.resp_time = 20
 
         # Angle limit set to 2 * theta_threshold_radians so failing observation
         # is still within bounds.
@@ -231,8 +231,10 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         desired_state = np.array([1, 0, 0, 0])
         reward = 0.0
+        terminated = False
 
-        for i in range(int(self.resp_time / self.tau)):
+        #while not terminated:
+        for i in range(int(self.resp_time*200 / self.tau)):
             
             x, x_dot, theta, theta_dot = self.stepstate
             # suppose that reference signal is 0 degree
@@ -275,7 +277,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             if terminated:
                 if self.steps_beyond_terminated is None:
                     self.steps_beyond_terminated = 0
-                    reward += 1.0
+                    reward += 1
                 else:
                     if self.steps_beyond_terminated == 0:
                         logger.warn(
@@ -289,12 +291,13 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
                 break
             else:
-                reward += 1.0
+                important_error = np.sum(np.square(np.array([error[0], error[2]])))
+                #reward += (0.5 - np.sum(np.square(error))/40)
+                reward += 1
+                    
+        #return np.array(self.state), reward, {}
+        return np.array(error), reward, {}
 
-        
-        
-        return np.array(self.state), reward, {}
-    
     def timelinstep(self, action):
         # err_msg = f"{action!r} ({type(action)}) invalid"
         # assert -self.force_mag <= action and action <= self.force_mag, err_msg
@@ -423,6 +426,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         super().reset(seed=seed)
         # Note that if you use custom reset bounds, it may lead to out-of-bound
         # state/observations.
+        desired_state = np.array([0, 0, 0, 0])
         low, high = utils.maybe_parse_reset_bounds(
             options, -0.05, 0.05  # default low
         )  # default high
@@ -437,7 +441,9 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         if self.render_mode == "human":
             self.render()
-        return np.array(self.stepstate, dtype=np.float32), {}
+
+        #return desired_state - self.stepstate, {}
+        return self.stepstate, {}
 
     def render(self):
         if self.render_mode is None:
