@@ -15,8 +15,8 @@ agent = SACAgent(env=env, load=load)
 
 # train the agent if not load
 if load is False:
-    epochs = int(input("EPOCHS: "))
-    save = True if input("Save Agent? (True or False): ") == 'True' else False
+    epochs = 1000#int(input("EPOCHS: "))
+    save = False#True if input("Save Agent? (True or False): ") == 'True' else False
     scores = agent.train(epochs, save=save)
     print("------Training Completed------")
 

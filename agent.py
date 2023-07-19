@@ -51,54 +51,36 @@ class SACAgent:
         self.save_epi_reward = []
 
     def train(self, max_episode_num, save=False):
-        #self.update_target_network()
 
         for ep in tqdm(range(max_episode_num)):
-            time, episode_reward, truncated, terminated = 0, 0, False, False
-            state, _ = self.env.reset()
 
             if ep % 10 == 0: 
                 live_plot(self.save_epi_reward)
 
-            while not truncated and not terminated and time < 500:
+            init_state, _ = self.env.reset() # initial state
 
-                if np.mean(self.save_epi_reward[-100:]) > 300: break
+            action = self.get_action(torch.from_numpy(init_state).to(torch.float32))
+            action = np.clip(action, 0, self.action_bound)
+            action = list(action)
 
-                action = self.get_action(torch.from_numpy(state).to(torch.float32))
-                action = np.clip(action, -self.action_bound, self.action_bound)
-                action = list(action)
-                print(action)
+            traj, reward, _ = self.env.linstep(action)
 
-                next_state, reward, terminated, truncated, _ = self.env.step(action)
+            self.buffer.add_buffer(init_state, action, reward, True)
 
-                self.buffer.add_buffer(state, action, reward, next_state, terminated or truncated)
+            if self.buffer.count > 100:
+                init_states, actions, rewards, dones = self.buffer.sample_batch(self.BATCH_SIZE)
 
-                if self.buffer.count > 100:
-                    states, actions, rewards, next_states, dones = self.buffer.sample_batch(self.BATCH_SIZE)
+                target_qi = rewards
+                
+                y_i = self.q_target(rewards, target_qi, dones)
 
-                    with torch.no_grad():
-                        next_mu, next_std = self.actor(torch.tensor(next_states).to(torch.float32).to(self.actor.device))
-                        next_actions, next_log_pdf = self.actor.sample_normal(next_mu, next_std, reparam=True)
+                self.critic_learn(torch.tensor(init_states).to(torch.float32).to(self.actor.device), torch.tensor(actions).to(torch.float32).to(self.actor.device),
+                                    torch.tensor(y_i).to(torch.float32).to(self.actor.device))
+                self.actor_learn(torch.tensor(init_states).to(torch.float32).to(self.actor.device))
+                
+                self.update_target_network()
 
-                        target_qs_1 = self.target_critic_1([torch.tensor(next_states).to(torch.float32).to(self.actor.device), next_actions])
-                        target_qs_2 = self.target_critic_2([torch.tensor(next_states).to(torch.float32).to(self.actor.device), next_actions])
-                        target_qs = torch.min(target_qs_1, target_qs_2)
-
-                        target_qi = target_qs - self.ALPHA * next_log_pdf
-                    
-                    y_i = self.q_target(rewards, target_qi.cpu().numpy(), dones)
-
-                    self.critic_learn(torch.tensor(states).to(torch.float32).to(self.actor.device), torch.tensor(actions).to(torch.float32).to(self.actor.device),
-                                      torch.tensor(y_i).to(torch.float32).to(self.actor.device))
-                    self.actor_learn(torch.tensor(states).to(torch.float32).to(self.actor.device))
-                    
-                    self.update_target_network()
-
-                state = next_state
-                episode_reward += reward
-                time += 1
-
-            self.save_epi_reward.append(episode_reward)
+            self.save_epi_reward.append(reward)
             
         if save == True:
             self.save_agent()

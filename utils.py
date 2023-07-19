@@ -17,20 +17,15 @@ def showcase(agent, env, n_showcase=3):
     for _ in range(n_episodes):
         state, _ = env.reset()
 
-        score = 0
-        terminated = False
-        truncated = False
-
-        while not terminated and not truncated:
-            state = torch.tensor(state, dtype=torch.float32)
-            action = agent.get_action(state, deterministic=True)
-            action = np.clip(action, -agent.action_bound, agent.action_bound)
-            action = list(action)
-            print(action)
-            state, reward, terminated, truncated, _ = env.step(action)
-            score += reward
+        state = torch.tensor(state, dtype=torch.float32)
+        action = agent.get_action(state, deterministic=True)
+        action = np.clip(action, 0, agent.action_bound)
+        action = list(action)
         
-        scores.append(score)
+        print(action)
+
+        traj, reward, _ = env.linstep(action)
+        scores.append(reward)
 
     print(f"Showcase average score: {sum(scores)/len(scores):10.2f}")
     env.close() 
@@ -72,8 +67,8 @@ class ReplayBuffer:
         self.buffer = deque()
         self.count = 0
 
-    def add_buffer(self, state, action, reward, next_state, done):
-        transition = (state, action, reward, next_state, done)
+    def add_buffer(self, state, action, reward, done):
+        transition = (state, action, reward, done)
 
         # 버퍼가 꽉 찼는지 확인
         if self.count < self.buffer_size:
@@ -93,10 +88,9 @@ class ReplayBuffer:
         states = np.asarray([i[0] for i in batch])
         actions = np.asarray([i[1] for i in batch])
         rewards = np.asarray([i[2] for i in batch])
-        next_states = np.asarray([i[3] for i in batch])
-        dones = np.asarray([i[4] for i in batch])
+        dones = np.asarray([i[3] for i in batch])
 
-        return states, actions, rewards, next_states, dones
+        return states, actions, rewards, dones
 
     def buffer_count(self):
         return self.count
