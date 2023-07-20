@@ -14,8 +14,8 @@ class SACAgent:
         self.GAMMA = 0.99
         self.BATCH_SIZE = 64    
         self.BUFFER_SIZE = 1_000_000
-        self.ACTOR_LEARNING_RATE = 9e-4
-        self.CRITIC_LEARNING_RATE = 9e-4
+        self.ACTOR_LEARNING_RATE = 3e-4
+        self.CRITIC_LEARNING_RATE = 3e-4
         self.TAU = 5e-3
         self.ALPHA = 0.1     
 
@@ -72,16 +72,16 @@ class SACAgent:
 
             SP, CV = self.env.reset()                                              
             PID = np.array([K[-1] for K in [self.P_list, self.I_list, self.D_list]])         
-            ISE = self.ISE_list[-1]                                            
+            ISE = np.array([self.ISE_list[-1]])                                          
             state = np.concatenate((PID, SP, CV, ISE)) 
 
+            print(state)
             action = self.get_action(torch.from_numpy(state).to(torch.float32))      
             action = np.clip(action, -self.action_bound, self.action_bound)
 
             P, I, D = PID + action
             self.P_list.append(P); self.I_list.append(I); self.D_list.append(D)
 
-            print(P, I, D)
             score, ISE = self.env.linstep([P, I, D])
             self.ISE_list.append(ISE)
 

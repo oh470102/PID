@@ -230,11 +230,12 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.reset()
 
         desired_state = np.array([0, 0, 0, 0])
-        reward = 0.0
+        score, ISE = 0, 0
         terminated = False
+        MAX_DUR = 500
 
         #while not terminated:
-        for i in range(int(self.resp_time*10 / self.tau)):
+        for i in range(MAX_DUR):
             
             x, x_dot, theta, theta_dot = self.stepstate
             # suppose that reference signal is 0 degree
@@ -277,7 +278,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             if terminated:
                 if self.steps_beyond_terminated is None:
                     self.steps_beyond_terminated = 0
-                    reward += 1
+                    score += 1
                 else:
                     if self.steps_beyond_terminated == 0:
                         logger.warn(
@@ -287,85 +288,15 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                             "True' -- any further steps are undefined behavior."
                         )
                     self.steps_beyond_terminated += 1
-                    reward += 0.0
+                    score += 0.0
 
                 break
             else:
-                important_error = np.sum(np.square(np.array([error[0], error[2]])))
-                #reward += (0.5 - np.sum(np.square(error))/40)
-                reward += 1
+                err = np.sum(np.square(error))/10
+                ISE -= err
+                score += (1 - err)
                     
-        return np.array(self.state), reward, {}
-        #return np.array(error), reward, {}
-
-    def timelinstep(self, action):
-        # err_msg = f"{action!r} ({type(action)}) invalid"
-        # assert -self.force_mag <= action and action <= self.force_mag, err_msg
-        #assert self.stepstate is not None, "Call reset before using step method."
-
-        desired_state = np.array([0, 0, 0, 0])
-        score = 0.0
-        ISE = 0.0
-
-        x, x_dot, theta, theta_dot = self.stepstate
-        # suppose that reference signal is 0 degree
-
-        error = desired_state - self.stepstate
-
-        if self.control_mode == 'pid1':
-            force = - self.pidcontrol1(error, action)
-        elif self.control_mode == 'pid2':
-            force = - self.pidcontrol2(error, action)
-
-        def pend(y, t, F, m_c, m_p, l_p, g):
-            x, x_dot, th, th_dot = y
-            
-            xacc = -5.88 * th + 0.8 * F
-
-            thetaacc = 23.52 * th - 1.2 * F
-
-            ytdt = [x_dot, xacc, th_dot, thetaacc]
-            return ytdt
-        
-
-        sol = integrate.odeint(pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
-            float(force), self.masscart, self.masspole, self.length, self.gravity
-        ))
-
-        self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
-
-        terminated = bool(
-            sol[1][0] < -self.x_threshold
-            or sol[1][0] > self.x_threshold
-            or sol[1][2] < -self.theta_threshold_radians
-            or sol[1][2] > self.theta_threshold_radians
-        )
-
-        if self.render_mode == "human":
-            self.render()
-
-        if terminated:
-            if self.steps_beyond_terminated is None:
-                self.steps_beyond_terminated = 0
-                score += 1.0
-            else:
-                if self.steps_beyond_terminated == 0:
-                    logger.warn(
-                        "You are calling 'step()' even though this "
-                        "environment has already returned terminated = True. You "
-                        "should always call 'reset()' once you receive 'terminated = "
-                        "True' -- any further steps are undefined behavior."
-                    )
-                self.steps_beyond_terminated += 1
-                score += 0.0
-
-        else:
-            score += 1.0
-            ISE += np.sum(np.square(error))/10
-
-        
         return score, ISE
-        #return np.array(self.stepstate), reward, terminated, False, {}
     
     def pidcontrol1(self, error, action):
         # action should be [K_p, K_i, K_d]

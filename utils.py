@@ -16,11 +16,12 @@ def showcase(agent, env, n_showcase=3):
     scores = []
     for _ in range(n_episodes):
         SP, CV = env.reset()
+        SP, CV = torch.tensor(SP), torch.tensor(CV)
 
         curr_PID = torch.tensor([agent.P_list[-1], agent.I_list[-1], agent.D_list[-1]], dtype=torch.float32)
-        curr_ISE = agent.ISE_list[-1]
+        curr_ISE = torch.tensor([agent.ISE_list[-1]])
 
-        state = torch.tensor(torch.cat[curr_PID, SP, CV, curr_ISE], dtype=torch.float32)
+        state = torch.tensor(torch.cat([curr_PID, SP, CV, curr_ISE]), dtype=torch.float32)
 
         action = agent.get_action(state, deterministic=True)
         action = np.clip(action, -agent.action_bound, agent.action_bound)
@@ -49,7 +50,7 @@ def final_plot(g1):
     resolve_matplotlib_error()
     plt.ioff()
 
-    window_size = 50
+    window_size = 100
     moving_average = np.convolve(g1, np.ones(window_size) / window_size, mode='valid')
 
     plt.plot(moving_average, label='mAverage',color='red', linewidth=2.5)
