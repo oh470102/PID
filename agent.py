@@ -28,7 +28,7 @@ class SACAgent:
         self.action_dim = 3
         self.action_bound = 0.1 # sensitive
 
-        self.actor = Actor(self.action_dim, self.action_bound)
+        self.actor = Actor(self.action_dim, self.action_bound, self.state_dim)
         
         self.critic_1 = Critic(self.action_dim, self.state_dim)
         self.target_critic_1 = deepcopy(self.critic_1)

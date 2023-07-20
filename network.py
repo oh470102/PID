@@ -10,16 +10,17 @@ import torch.distributions as D
 
 class Actor(nn.Module):
 
-    def __init__(self, action_dim, action_bound):
+    def __init__(self, action_dim, action_bound, state_dim):
         # action_dim = 3 if pidcontrol1 else 6 if pidcontrol2
         super().__init__()
 
         self.action_dim = action_dim
         self.action_bound = action_bound
+        self.state_dim = state_dim
         self.std_bound = [1e-6, 1.0]
 
         # state_dim = 7
-        self.l1 = nn.Linear(11, 128) 
+        self.l1 = nn.Linear(self.state_dim, 128) 
         self.ln_1 = nn.LayerNorm(64)
         self.l2 = nn.Linear(128, 64)
         self.ln_2 = nn.LayerNorm(64)
