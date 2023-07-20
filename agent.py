@@ -12,17 +12,17 @@ class SACAgent:
 
     def __init__(self, env, load=False):
         self.GAMMA = 0.99
-        self.BATCH_SIZE = 64    
+        self.BATCH_SIZE = 64
         self.BUFFER_SIZE = 1_000_000
-        self.ACTOR_LEARNING_RATE = 3e-4
-        self.CRITIC_LEARNING_RATE = 3e-4
+        self.ACTOR_LEARNING_RATE = 1e-3
+        self.CRITIC_LEARNING_RATE = 1e-3
         self.TAU = 5e-3
-        self.ALPHA = 0.1     
+        self.ALPHA = 0.25  
 
         self.P_list = [50]
         self.D_list = [10]
         self.I_list = [10]
-        self.ISE_list = [1e3]
+        self.ISE_list = [0]
 
         self.env = env
         self.state_dim = 3 + 4 + 4 + 1 # PID, SP, CV, ISE
