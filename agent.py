@@ -12,21 +12,22 @@ class SACAgent:
 
     def __init__(self, env, load=False):
         self.GAMMA = 0.99
-        self.BATCH_SIZE = 32    
-        self.BUFFER_SIZE = 100_000
+        self.BATCH_SIZE = 64    
+        self.BUFFER_SIZE = 1_000_000
         self.ACTOR_LEARNING_RATE = 9e-4
         self.CRITIC_LEARNING_RATE = 9e-4
         self.TAU = 5e-3
-        self.ALPHA = 0.25      # sensitive
+        self.ALPHA = 0.1     
 
         self.P_list = [50]
         self.D_list = [10]
         self.I_list = [10]
- 
+        self.ISE_list = [1e3]
+
         self.env = env
-        self.state_dim = 3+4+4 # PID, Sp, Sp-CV
+        self.state_dim = 3 + 4 + 4 + 1 # PID, SP, CV, ISE
         self.action_dim = 3
-        self.action_bound = 0.2 # sensitive
+        self.action_bound = 0.1 
 
         self.actor = Actor(self.action_dim, self.action_bound, self.state_dim)
         
@@ -56,47 +57,50 @@ class SACAgent:
 
     def train(self, max_episode_num, save=False):
         '''
-        Let s = [P, I, D, SP, CV]
-        reset returns (CV), {}
-        step returns (CV), return, {}
+        S = [P, I, D, SP, CV, ISE_prev]
+        A = [dP, dI, dD]
+        
+        step -> score, ISE
+        reset -> SP, CV
+        ISE -> 1/10 scaled
 
-        a = [dP, dI, dD]
         '''
         for ep in tqdm(range(max_episode_num)):
 
             if ep % 10 == 0: 
                 live_plot(self.save_epi_reward)
 
-            init_state, _ = self.env.reset()                                              # CV
-            curr_PID = np.array([x[-1] for x in [self.P_list, self.I_list, self.D_list]]) # PID
-            SP = np.array([0,0,0,0])                                                      # SP
-            init_state = np.concatenate((curr_PID, SP, init_state)) 
+            SP, CV = self.env.reset()                                              
+            PID = np.array([K[-1] for K in [self.P_list, self.I_list, self.D_list]])         
+            ISE = self.ISE_list[-1]                                            
+            state = np.concatenate((PID, SP, CV, ISE)) 
 
-            action = self.get_action(torch.from_numpy(init_state).to(torch.float32))      # d(PID)
+            action = self.get_action(torch.from_numpy(state).to(torch.float32))      
             action = np.clip(action, -self.action_bound, self.action_bound)
 
-            P, I, D = curr_PID + np.array(action)
+            P, I, D = PID + action
             self.P_list.append(P); self.I_list.append(I); self.D_list.append(D)
 
             print(P, I, D)
-            _, reward, _ = self.env.linstep([P, I, D])
+            score, ISE = self.env.linstep([P, I, D])
+            self.ISE_list.append(ISE)
 
-            self.buffer.add_buffer(init_state, action, reward, True)
+            self.buffer.add_buffer(state, action, score, True)
 
             if self.buffer.count > 100:
-                init_states, actions, rewards, dones = self.buffer.sample_batch(self.BATCH_SIZE)
+                states, actions, scores, dones = self.buffer.sample_batch(self.BATCH_SIZE)
 
-                target_qi = rewards
+                target_qi = scores
                 
-                y_i = self.q_target(rewards, target_qi, dones)
+                y_i = self.q_target(scores, target_qi, dones)
 
-                self.critic_learn(torch.tensor(init_states).to(torch.float32).to(self.actor.device), torch.tensor(actions).to(torch.float32).to(self.actor.device),
+                self.critic_learn(torch.tensor(states).to(torch.float32).to(self.actor.device), torch.tensor(actions).to(torch.float32).to(self.actor.device),
                                     torch.tensor(y_i).to(torch.float32).to(self.actor.device))
-                self.actor_learn(torch.tensor(init_states).to(torch.float32).to(self.actor.device))
+                self.actor_learn(torch.tensor(states).to(torch.float32).to(self.actor.device))
                 
                 self.update_target_network()
 
-            self.save_epi_reward.append(reward)
+            self.save_epi_reward.append(score)
             
         if save == True:
             self.save_agent()

@@ -303,10 +303,10 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         # assert -self.force_mag <= action and action <= self.force_mag, err_msg
         #assert self.stepstate is not None, "Call reset before using step method."
 
-        desired_state = np.array([1, 0, 0, 0])
-        reward = 0.0
+        desired_state = np.array([0, 0, 0, 0])
+        score = 0.0
+        ISE = 0.0
 
-            
         x, x_dot, theta, theta_dot = self.stepstate
         # suppose that reference signal is 0 degree
 
@@ -347,7 +347,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         if terminated:
             if self.steps_beyond_terminated is None:
                 self.steps_beyond_terminated = 0
-                reward += 1.0
+                score += 1.0
             else:
                 if self.steps_beyond_terminated == 0:
                     logger.warn(
@@ -357,14 +357,15 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                         "True' -- any further steps are undefined behavior."
                     )
                 self.steps_beyond_terminated += 1
-                reward += 0.0
+                score += 0.0
 
         else:
-            reward += 1.0
+            score += 1.0
+            ISE += np.sum(np.square(error))/10
 
         
-        
-        return np.array(self.stepstate), reward, terminated, False, {}
+        return score, ISE
+        #return np.array(self.stepstate), reward, terminated, False, {}
     
     def pidcontrol1(self, error, action):
         # action should be [K_p, K_i, K_d]
@@ -416,21 +417,22 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             action[i][0] = -action[i][0]
         return mv
 
-
     def reset(
         self,
         *,
         seed: Optional[int] = None,
         options: Optional[dict] = None,
-    ):
+                                       ):
         super().reset(seed=seed)
         # Note that if you use custom reset bounds, it may lead to out-of-bound
         # state/observations.
-        desired_state = np.array([0, 0, 0, 0])
+        SP = np.array([0, 0, 0, 0])
+
         low, high = utils.maybe_parse_reset_bounds(
-            options, -0.05, 0.05  # default low
-        )  # default high
+            options, -0.05, 0.05) 
+
         self.stepstate = self.np_random.uniform(low=low, high=high, size=(4,))
+        CV = self.stepstate
         self.steps_beyond_terminated = None
 
         self.integral = 0
@@ -443,7 +445,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             self.render()
 
         #return desired_state - self.stepstate, {}
-        return self.stepstate, {}
+        return SP, CV
 
     def render(self):
         if self.render_mode is None:

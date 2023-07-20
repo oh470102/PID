@@ -21,11 +21,8 @@ class Actor(nn.Module):
 
         # state_dim = 7
         self.l1 = nn.Linear(self.state_dim, 128) 
-        self.ln_1 = nn.LayerNorm(64)
         self.l2 = nn.Linear(128, 64)
-        self.ln_2 = nn.LayerNorm(64)
         self.l3 = nn.Linear(64, 16)
-        self.ln_3 = nn.LayerNorm(16)
 
         self.mu = nn.Linear(16, self.action_dim)
         self.std = nn.Linear(16, self.action_dim)
@@ -71,9 +68,7 @@ class Critic(nn.Module):
         self.a1 = nn.Linear(self.action_dim, 32)
 
         self.l2 = nn.Linear(64, 128) # NOTE: 64 = v1.size + a1.size
-        self.ln_2 = nn.LayerNorm(32)
         self.l3 = nn.Linear(128, 64)
-        self.ln_3 = nn.LayerNorm(32)
         self.q =  nn.Linear(64, 1)
 
         self.device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
