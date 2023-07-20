@@ -47,7 +47,7 @@ def final_plot(g1):
     resolve_matplotlib_error()
     plt.ioff()
 
-    window_size = 10
+    window_size = 50
     moving_average = np.convolve(g1, np.ones(window_size) / window_size, mode='valid')
 
     plt.plot(moving_average, label='mAverage',color='red', linewidth=2.5)
