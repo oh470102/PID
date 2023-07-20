@@ -15,8 +15,8 @@ def showcase(agent, env, n_showcase=3):
     n_episodes = n_showcase
     scores = []
     for _ in range(n_episodes):
-        SP, CV = env.reset()
-        SP, CV = torch.tensor(SP), torch.tensor(CV)
+        SP = env.reset()
+        SP = torch.tensor(SP)
 
         curr_PID = torch.tensor([agent.P_list[-1], agent.I_list[-1], agent.D_list[-1]], dtype=torch.float32)
         curr_ISE = torch.tensor([agent.ISE_list[-1]])

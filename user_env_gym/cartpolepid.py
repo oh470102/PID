@@ -296,7 +296,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                 ISE -= err
                 score += (1 - err)
                     
-        return score, ISE
+        return score, ISE, np.stack(self.state[-10:], axis=0).reshape(-1)
     
     def pidcontrol1(self, error, action):
         # action should be [K_p, K_i, K_d]
@@ -376,7 +376,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             self.render()
 
         #return desired_state - self.stepstate, {}
-        return SP, CV
+        return SP
 
     def render(self):
         if self.render_mode is None:

@@ -12,20 +12,20 @@ class SACAgent:
 
     def __init__(self, env, load=False):
         self.GAMMA = 0.99
-        self.BATCH_SIZE = 64
+        self.BATCH_SIZE = 32
         self.BUFFER_SIZE = 1_000_000
-        self.ACTOR_LEARNING_RATE = 1e-3
-        self.CRITIC_LEARNING_RATE = 1e-3
+        self.ACTOR_LEARNING_RATE = 3e-4
+        self.CRITIC_LEARNING_RATE = 3e-4
         self.TAU = 5e-3
-        self.ALPHA = 0.25  
+        self.ALPHA = 0.25
 
         self.P_list = [50]
         self.D_list = [10]
         self.I_list = [10]
-        self.ISE_list = [0]
+        self.ISE_list = []
 
         self.env = env
-        self.state_dim = 3 + 4 + 4 + 1 # PID, SP, CV, ISE
+        self.state_dim = 3 + 4 + 4*10 + 1 # PID, SP, traj, ISE
         self.action_dim = 3
         self.action_bound = 0.1 
 
@@ -57,32 +57,39 @@ class SACAgent:
 
     def train(self, max_episode_num, save=False):
         '''
-        S = [P, I, D, SP, CV, ISE_prev]
+        S = [P, I, D, SP, traj, ISE_prev]
         A = [dP, dI, dD]
         
-        step -> score, ISE
-        reset -> SP, CV
-        ISE -> 1/10 scaled
+        step -> score, ISE, traj.
+        reset -> SP
+        ISE -> 1/1- scaled
 
         '''
+
+        ## init setup
+        _, ISE, traj = self.env.linstep([50, 10, 10])
+        self.ISE_list.append(ISE)
+        ## 
+
         for ep in tqdm(range(max_episode_num)):
 
             if ep % 10 == 0: 
                 live_plot(self.save_epi_reward)
 
-            SP, CV = self.env.reset()                                              
+            SP = self.env.reset()                                              
             PID = np.array([K[-1] for K in [self.P_list, self.I_list, self.D_list]])         
             ISE = np.array([self.ISE_list[-1]])                                          
-            state = np.concatenate((PID, SP, CV, ISE)) 
+            state = np.concatenate((PID, SP, traj, ISE)) 
 
-            print(state)
+            #print(state)
+            print(ISE)
             action = self.get_action(torch.from_numpy(state).to(torch.float32))      
             action = np.clip(action, -self.action_bound, self.action_bound)
 
             P, I, D = PID + action
             self.P_list.append(P); self.I_list.append(I); self.D_list.append(D)
 
-            score, ISE = self.env.linstep([P, I, D])
+            score, ISE, traj = self.env.linstep([P, I, D])
             self.ISE_list.append(ISE)
 
             self.buffer.add_buffer(state, action, score, True)
