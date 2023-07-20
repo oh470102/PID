@@ -229,12 +229,12 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         self.reset()
 
-        desired_state = np.array([1, 0, 0, 0])
+        desired_state = np.array([0, 0, 0, 0])
         reward = 0.0
         terminated = False
 
         #while not terminated:
-        for i in range(int(self.resp_time*200 / self.tau)):
+        for i in range(int(self.resp_time*10 / self.tau)):
             
             x, x_dot, theta, theta_dot = self.stepstate
             # suppose that reference signal is 0 degree
@@ -295,8 +295,8 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                 #reward += (0.5 - np.sum(np.square(error))/40)
                 reward += 1
                     
-        #return np.array(self.state), reward, {}
-        return np.array(error), reward, {}
+        return np.array(self.state), reward, {}
+        #return np.array(error), reward, {}
 
     def timelinstep(self, action):
         # err_msg = f"{action!r} ({type(action)}) invalid"

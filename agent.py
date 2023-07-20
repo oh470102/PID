@@ -56,9 +56,9 @@ class SACAgent:
 
     def train(self, max_episode_num, save=False):
         '''
-        Let s = [P, I, D, SP, SP-CV]
+        Let s = [P, I, D, SP, CV]
         reset returns (CV), {}
-        step returns (SP-CV), return, {}
+        step returns (CV), return, {}
 
         a = [dP, dI, dD]
         '''
@@ -69,7 +69,7 @@ class SACAgent:
 
             init_state, _ = self.env.reset() 
             curr_PID = np.array([x[-1] for x in [self.P_list, self.I_list, self.D_list]])
-            SP = np.array([init_state[0],0,0,0]) # desired state
+            SP = np.array([0,0,0,0]) # desired state
             init_state = np.concatenate((curr_PID, SP, init_state)) 
 
             action = self.get_action(torch.from_numpy(init_state).to(torch.float32))
@@ -79,7 +79,6 @@ class SACAgent:
             self.P_list.append(P); self.I_list.append(I); self.D_list.append(D)
 
             _, reward, _ = self.env.linstep([P, I, D])
-            print(P, I, D)
 
             self.buffer.add_buffer(init_state, [P, I, D], reward, True)
 
