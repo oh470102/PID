@@ -81,8 +81,8 @@ class ReplayBuffer:
         self.buffer = deque()
         self.count = 0
 
-    def add_buffer(self, state, action, reward, done):
-        transition = (state, action, reward, done)
+    def add_buffer(self, state, action, reward, next_state, done):
+        transition = (state, action, reward, next_state, done)
 
         # 버퍼가 꽉 찼는지 확인
         if self.count < self.buffer_size:
@@ -93,7 +93,6 @@ class ReplayBuffer:
             self.buffer.append(transition)
 
     def sample_batch(self, batch_size):
-
         if self.count < batch_size:
             batch = random.sample(self.buffer, self.count)
         else:
@@ -102,9 +101,9 @@ class ReplayBuffer:
         states = np.asarray([i[0] for i in batch])
         actions = np.asarray([i[1] for i in batch])
         rewards = np.asarray([i[2] for i in batch])
-        dones = np.asarray([i[3] for i in batch])
-
-        return states, actions, rewards, dones
+        next_states = np.asarray([i[3] for i in batch])
+        dones = np.asarray([i[4] for i in batch])
+        return states, actions, rewards, next_states, dones
 
     def buffer_count(self):
         return self.count
@@ -112,3 +111,4 @@ class ReplayBuffer:
     def clear_buffer(self):
         self.buffer = deque()
         self.count = 0
+ 

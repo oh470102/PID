@@ -64,7 +64,7 @@ class Critic(nn.Module):
         state, action = state_action[0], state_action[1]
 
         v = F.relu(self.v1(state))
-        a = F.relu(self.a1(action.view(-1, 1)))
+        a = F.relu(self.a1(action))
         x = torch.cat([v, a], dim=-1)
         x = F.relu(self.l2(x))
         x = F.relu(self.l3(x))

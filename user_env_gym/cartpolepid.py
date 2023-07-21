@@ -95,8 +95,8 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.total_mass = self.masspole + self.masscart
         self.length = 0.5  # actually half the pole's length
         self.polemass_length = self.masspole * self.length
-        self.fric_coef = 0.0  # friction between floor and cart
-        self.fric_rot = 0.0  # friction between cart and pole
+        self.fric_coef = 0.05  # friction between floor and cart
+        self.fric_rot = 0.03  # friction between cart and pole
         self.force_mag = 10.0
         self.tau = 0.02  # seconds between state updates
         self.kinematics_integrator = "euler"
@@ -111,7 +111,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.dprev_err = 0
 
         # how long one response takes
-        self.resp_time = 5
+        self.resp_time = 20
 
         # Angle limit set to 2 * theta_threshold_radians so failing observation
         # is still within bounds.
@@ -136,37 +136,56 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.clock = None
         self.isopen = True
         self.stepstate = None
-        self.state = []
+        self.trajectory = []
+        self.state = None
 
         self.steps_beyond_terminated = None
+
+        self.last_reward = 0
+        self.test_states = self.get_test_states()
 
     @staticmethod
     def sigmoid(x):
         return 1.0 / (1.0 + np.exp(-x))
+    
+    def get_test_states(self):
+
+        t_test = np.linspace(-0.01, 0.01, 4)
+        dt_test = np.linspace(-0.01, 0.01, 4)
+        test_states = []
+
+        for i in range(t_test.size):
+            for j in range(dt_test.size):
+                test_states.append([0, 0, t_test[j], dt_test[i]])
+
+        return np.array(test_states)
 
     def step(self, action):
         # err_msg = f"{action!r} ({type(action)}) invalid"
         # assert -self.force_mag <= action and action <= self.force_mag, err_msg
         #assert self.stepstate is not None, "Call reset before using step method."
 
-        self.reset()
+        self.iterreset()
 
-        desired_state = np.array([0, 0, 0, 0])
+        next_state = self.state + action
+
+        setpoint = np.array([0.3, 0, 0, 0])
         reward = 0.0
+        MAX_DUR = 500
 
-        for i in range(int(self.resp_time / self.tau)):
+        for i in range(MAX_DUR):
             
             x, x_dot, theta, theta_dot = self.stepstate
             # suppose that reference signal is 0 degree
 
-            error = desired_state - self.stepstate
+            error = setpoint - self.stepstate
 
             if self.control_mode == 'pid1':
-                force = self.pidcontrol1(error, action)
+                force = self.pidcontrol1(error, next_state)
             elif self.control_mode == 'pid2':
-                force = self.pidcontrol2(error, action)
+                force = self.pidcontrol2(error, next_state)
 
-            def pend(y, t, F, m_c, m_p, l_p, g, k, b):
+            def pend(y, t, F, m_c, m_p, l_p, g):
                 x, x_dot, th, th_dot = y
                 sintheta = np.sin(th)
                 costheta = np.cos(th)
@@ -183,151 +202,11 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             
 
             sol = integrate.odeint(pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
-                float(force), self.masscart, self.masspole, self.length, self.gravity, self.fric_coef, self.fric_rot
-            ))
-
-            print(sol)
-
-            self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
-            self.state.append(np.array(self.stepstate, dtype = np.float32))
-
-            terminated = bool(
-                sol[1][0] < -self.x_threshold
-                or sol[1][0] > self.x_threshold
-                or sol[1][2] < -self.theta_threshold_radians
-                or sol[1][2] > self.theta_threshold_radians
-            )
-
-            if self.render_mode == "human":
-                self.render()
-
-            # if terminated:
-            #     if self.steps_beyond_terminated is None:
-            #         self.steps_beyond_terminated = 0
-            #         reward += 1.0
-            #     else:
-            #         if self.steps_beyond_terminated == 0:
-            #             logger.warn(
-            #                 "You are calling 'step()' even though this "
-            #                 "environment has already returned terminated = True. You "
-            #                 "should always call 'reset()' once you receive 'terminated = "
-            #                 "True' -- any further steps are undefined behavior."
-            #             )
-            #         self.steps_beyond_terminated += 1
-            #         reward += 0.0
-
-            #     break
-            # else:
-            #     reward += 1.0
-
-        
-        
-        return np.array(self.state), reward, {}
-    
-    def coefstep(self, action):
-        # err_msg = f"{action!r} ({type(action)}) invalid"
-        # assert -self.force_mag <= action and action <= self.force_mag, err_msg
-        #assert self.stepstate is not None, "Call reset before using step method."
-
-        score = 8.0
-
-        for i in range(8):
-            self.coefreset(i+1)
-
-            desired_state = np.array([0, 0, 0, 0])
-
-            for i in range(int(self.resp_time / self.tau)):
-                
-                x, x_dot, theta, theta_dot = self.stepstate
-                # suppose that reference signal is 0 degree
-
-                error = desired_state - self.stepstate
-
-                if self.control_mode == 'pid1':
-                    force = self.pidcontrol1(error, action)
-                elif self.control_mode == 'pid2':
-                    force = self.pidcontrol2(error, action)
-
-                def pend(y, t, F, m_c, m_p, l_p, g, k, b):
-                    x, x_dot, th, th_dot = y
-                    sintheta = np.sin(th)
-                    costheta = np.cos(th)
-                    temp = (
-                        F + m_p * l_p * th_dot**2 * sintheta
-                    ) / (m_p + m_c)
-                    thetaacc = (g * sintheta - costheta * temp) / (
-                        l_p * (4.0 / 3.0 - m_p * costheta**2 / (m_p + m_c))
-                    )
-                    xacc = temp - m_p * l_p * thetaacc * costheta / (m_p + m_c)
-
-                    ytdt = [x_dot, xacc, th_dot, thetaacc]
-                    return ytdt
-                
-
-                sol = integrate.odeint(pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
-                    float(force), self.masscart, self.masspole, self.length, self.gravity
-                ))
-
-                self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
-                self.state.append(np.array(self.stepstate, dtype = np.float32))
-
-                terminated = bool(
-                    sol[1][0] < -self.x_threshold
-                    or sol[1][0] > self.x_threshold
-                    or sol[1][2] < -self.theta_threshold_radians
-                    or sol[1][2] > self.theta_threshold_radians
-                )
-
-                if self.render_mode == "human":
-                    self.render()
-
-                if terminated == True:
-                    score -= 1.0
-                    break
-
-        
-        
-        return score, {}
-    
-    def linstep(self, action):
-        '''
-        [P, I, D] --> next_state, reward, truncated, {}
-        '''
-
-        self.reset()
-
-        test_states = []
-        desired_state = np.array([1, 0, 0, 0])
-        reward = 0.0
-
-        for i in range(500):
-            
-            x, x_dot, theta, theta_dot = self.stepstate
-            # suppose that reference signal is 0 degree
-
-            error = desired_state - self.stepstate
-
-            if self.control_mode == 'pid1':
-                force = self.pidcontrol1(error, action)
-            elif self.control_mode == 'pid2':
-                force = self.pidcontrol2(error, action)
-
-            def pend(y, t, F, m_c, m_p, l_p, g):
-                x, x_dot, th, th_dot = y
-                
-                xacc = ((3 * g * m_p)/(4 - 3 * m_p)) * th + (4 / ((m_p + m_c) * (4 - 3 * m_p))) * F
-
-                thetaacc = ((3 * g * (m_p + m_c)) / (l_p * (4 - 3 * m_p))) * th + (3 / (l_p * (4 - 3 * m_p))) * F
-
-                ytdt = [x_dot, xacc, th_dot, thetaacc]
-                return ytdt
-
-            sol = integrate.odeint(pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
                 float(force), self.masscart, self.masspole, self.length, self.gravity
             ))
 
             self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
-            self.state.append(np.array(self.stepstate, dtype = np.float32))
+            self.trajectory.append(np.array(self.stepstate, dtype = np.float32))
 
             terminated = bool(
                 sol[1][0] < -self.x_threshold
@@ -358,7 +237,93 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             else:
                 reward += 1.0
 
-        return np.array(self.state), reward, {}
+        self.state = next_state       
+        
+        alive = not terminated
+        return next_state, reward, alive#, np.array(self.trajectory)
+    
+    def linstep(self, action):
+        # err_msg = f"{action!r} ({type(action)}) invalid"
+        # assert -self.force_mag <= action and action <= self.force_mag, err_msg
+        #assert self.stepstate is not None, "Call reset before using step method."
+
+        SIMUL_DUR = 500
+        next_state = self.state + action
+        setpoint = np.array([0, 0, 0, 0])
+
+        test_states = self.test_states
+        rewards = []
+
+        for test_state in test_states:
+
+            self.iterreset()
+            reward = 0.0
+            terminated = False
+            self.stepstate = test_state
+
+            j = 0
+            while not terminated and j < SIMUL_DUR:
+
+                j += 1; terminated=True if not j< SIMUL_DUR else False
+                
+                x, x_dot, theta, theta_dot = self.stepstate
+                error = setpoint - self.stepstate
+
+                if self.control_mode == 'pid1':
+                    force = - self.pidcontrol1(error, next_state)
+                elif self.control_mode == 'pid2':
+                    force = - self.pidcontrol2(error, next_state)
+
+                def pend(y, t, F, m_c, m_p, l_p, g):
+                    x, x_dot, th, th_dot = y
+                    
+                    xacc = ((3 * g * m_p)/(4 - 3 * m_p)) * th + (4 / ((m_p + m_c) * (4 - 3 * m_p))) * F
+
+                    thetaacc = ((3 * g * (m_p + m_c)) / (l_p * (4 - 3 * m_p))) * th + (3 / (l_p * (4 - 3 * m_p))) * F
+
+                    ytdt = [x_dot, xacc, th_dot, thetaacc]
+                    return ytdt
+                
+                sol = integrate.odeint(pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
+                    float(force), self.masscart, self.masspole, self.length, self.gravity
+                ))
+
+                self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
+                self.trajectory.append(np.array(self.stepstate, dtype = np.float32))
+
+                terminated = bool(
+                    sol[1][0] < -self.x_threshold
+                    or sol[1][0] > self.x_threshold
+                    or sol[1][2] < -self.theta_threshold_radians
+                    or sol[1][2] > self.theta_threshold_radians
+                )
+
+                if self.render_mode == "human":
+                    self.render()
+
+                if terminated:
+                    if self.steps_beyond_terminated is None:
+                        self.steps_beyond_terminated = 0
+                        rewards.append(reward)
+                    else:
+                        if self.steps_beyond_terminated == 0:
+                            logger.warn(
+                                "You are calling 'step()' even though this "
+                                "environment has already returned terminated = True. You "
+                                "should always call 'reset()' once you receive 'terminated = "
+                                "True' -- any further steps are undefined behavior."
+                            )
+                        self.steps_beyond_terminated += 1
+
+                    break
+                else:
+                    reward += 1
+
+        self.state = next_state
+        actual_reward = np.mean(rewards) - self.last_reward - 0.01
+        self.last_reward = np.mean(rewards)
+
+        return next_state, actual_reward, np.mean(rewards)
     
     def pidcontrol1(self, error, action):
         # action should be [K_p, K_i, K_d]
@@ -387,8 +352,6 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         for i in range(3):
             action[i][0] = -action[i][0]
-
-        print(error, action[0])
         
         mv = self.prev_mv + (np.dot(np.array(action[0]), np.array(error) - np.array(self.prev_err)) 
                              + self.tau * np.dot(np.array(action[1]), np.array(error)) 
@@ -404,60 +367,38 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.dprev_err = self.prev_err
         self.prev_err = error
 
-
-        print(mv)
         for i in range(3):
             action[i][0] = -action[i][0]
         return mv
 
-    def reset(
+    def iterreset(
         self,
         *,
         seed: Optional[int] = None,
         options: Optional[dict] = None,
-    ):
+                                       ):
         super().reset(seed=seed)
-        # Note that if you use custom reset bounds, it may lead to out-of-bound
-        # state/observations.
-        low, high = utils.maybe_parse_reset_bounds(
-            options, -0.05, 0.05  # default low
-        )  # default high
-        self.stepstate = self.np_random.uniform(low=low, high=high, size=(4,))
+
+        self.stepstate = [None, None, None, None]
         self.steps_beyond_terminated = None
 
         self.integral = 0
         self.prev_err = 0
 
-        self.state = []
-        self.state.append(self.stepstate)
+        self.trajectory = []
+        self.trajectory.append(self.stepstate)
 
         if self.render_mode == "human":
             self.render()
-        return np.array(self.stepstate, dtype=np.float32), {}
     
-    def coefreset(
-        self,
-        divide,
-        *,
-        seed: Optional[int] = None,
-        options: Optional[dict] = None,
-    ):
-        super().reset(seed=seed)
-        # Note that if you use custom reset bounds, it may lead to out-of-bound
-        # state/observations.
+    def reset(self):
+        if self.control_mode == 'pid1':
+            self.state = np.array([50.0, 50.0, 50.0])
+            #self.state = self.np_random.uniform(low = [0,0,0], high = [100,100,100], size = (3,))
+        elif self.control_mode == 'pid2':
+            self.state = self.np_random.uniform(low = [[0,0],[0,0],[0,0]], high = [[50,100], [50,100], [50,100]], size = (3, 2))
 
-        self.stepstate = [0,0, 0.2 * (4.5 - divide) / 3.5,0]
-        self.steps_beyond_terminated = None
-
-        self.integral = 0
-        self.prev_err = 0
-
-        self.state = []
-        self.state.append(self.stepstate)
-
-        if self.render_mode == "human":
-            self.render()
-        return np.array(self.stepstate, dtype=np.float32), {}
+        return self.state
 
     def render(self):
         if self.render_mode is None:

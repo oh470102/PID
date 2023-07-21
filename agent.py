@@ -8,18 +8,18 @@ import numpy as np
 class SACAgent:
 
     def __init__(self, env):
-        self.GAMMA = 0.99
-        self.BATCH_SIZE = 128
+        self.GAMMA = 0.5
+        self.BATCH_SIZE = 64
         self.BUFFER_SIZE = 1_000_000
         self.ACTOR_LEARNING_RATE = 3e-4
         self.CRITIC_LEARNING_RATE = 3e-4
         self.TAU = 5e-3
-        self.ALPHA = 1/3
+        self.ALPHA = 1.0
 
         self.env = env
         self.state_dim = 3
         self.action_dim = 3
-        self.action_bound = 0.1
+        self.action_bound = 0.5
 
         self.PID = np.array([None, None, None])
 
@@ -40,17 +40,6 @@ class SACAgent:
         self.buffer = ReplayBuffer(self.BUFFER_SIZE)
 
         self.save_epi_reward = []
-
-    def PID_reset(self):
-        self.PID[0] = np.random.randint(10, 100)
-        self.PID[1] = np.random.randint(10, 100)
-        self.PID[2] = np.random.randint(10, 100)
-
-        # self.PID[0] = 50
-        # self.PID[0] = 10        
-        # self.PID[0] = 10
-
-        return self.PID
     
     def save_agent(self):
         from datetime import datetime
@@ -75,7 +64,7 @@ class SACAgent:
                 action = mu
             else:
                 action, _ = self.actor.sample_normal(mu, std, reparam=False)
-        return action.numpy()[0]
+        return action.numpy()
     
     def update_target_network(self):
         phi_1 = self.critic_1.state_dict()
@@ -133,21 +122,30 @@ class SACAgent:
     def train(self, max_episode_num, save=False):
 
         for ep in tqdm(range(max_episode_num)):
-            episode_reward, done = 0, False, False
-            state = self.PID_reset()
+            done, time = False, 0 
+            state = self.env.reset()
+            self.PID = state
 
-            if ep % 10 == 0: 
+            print(f"Initial PID: {self.PID}")
+
+            if ep % 2 == 0: 
                 live_plot(self.save_epi_reward)
 
             while not done:
+                print(state)
                 action = self.get_action(torch.from_numpy(state).to(torch.float32))
                 action = np.clip(action, -self.action_bound, self.action_bound)
                 action = np.array(action)
                 self.PID += action
                 
-                next_state, reward, done = self.env.linstep(self.PID)
+                next_state, reward, mean_score = self.env.linstep(action)
+                next_state = np.round(np.clip(next_state, 0, 1000), 2)
+                self.save_epi_reward.append(mean_score)
 
-                self.buffer.add_buffer(state, action, reward, next_state, done)
+                print(f"Changed PID to: {next_state}, recording score: {mean_score:2f}, and got better by {reward}")
+                time += 1; done = True if time >= 500 else False
+
+                self.buffer.add_buffer(state=state, action=action, reward=reward, next_state=next_state, done=done)
 
                 if self.buffer.count > 100:
                     states, actions, rewards, next_states, dones = self.buffer.sample_batch(self.BATCH_SIZE)
@@ -170,10 +168,8 @@ class SACAgent:
                     self.update_target_network()
 
                 state = next_state
-                episode_reward += reward
 
-            self.save_epi_reward.append(episode_reward)
-            
+
         if save == True:
             self.save_agent()
 
