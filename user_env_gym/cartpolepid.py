@@ -141,7 +141,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         self.steps_beyond_terminated = None
 
-        self.last_reward = 0
+        self.last_reward = 15
         self.test_states = self.get_test_states()
 
     @staticmethod
