@@ -6,6 +6,13 @@ import matplotlib.pyplot as plt
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+def test_PID(env):
+
+    for i in range(10):
+        #env.reset()
+        state, reward, info = env.linstep([100,100,10])
+        # state, reward, info = env.linstep([[20,100],[10,100],[0,10]])
+
 def resolve_matplotlib_error():
     import os
     os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
@@ -21,7 +28,7 @@ def showcase(agent, env, n_showcase=3):
         curr_PID = torch.tensor([agent.P_list[-1], agent.I_list[-1], agent.D_list[-1]], dtype=torch.float32)
         curr_ISE = torch.tensor([agent.ISE_list[-1]])
 
-        state = torch.tensor(torch.cat([curr_PID, SP, CV, curr_ISE]), dtype=torch.float32)
+        state = torch.tensor(torch.cat([curr_PID, SP, curr_ISE]), dtype=torch.float32)
 
         action = agent.get_action(state, deterministic=True)
         action = np.clip(action, -agent.action_bound, agent.action_bound)

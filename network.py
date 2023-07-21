@@ -1,8 +1,3 @@
-'''
-Define Actor & Critic Networks
-Consider employing two actor networks in future work, maybe...
-'''
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -11,30 +6,24 @@ import torch.distributions as D
 class Actor(nn.Module):
 
     def __init__(self, action_dim, action_bound, state_dim):
-        # action_dim = 3 if pidcontrol1 else 6 if pidcontrol2
         super().__init__()
 
         self.action_dim = action_dim
         self.action_bound = action_bound
-        self.state_dim = state_dim
         self.std_bound = [1e-6, 1.0]
+        self.state_dim = state_dim
 
-        # state_dim = 7
-        self.l1 = nn.Linear(self.state_dim, 64) 
-        self.l2 = nn.Linear(64, 128)
+        self.l1 = nn.Linear(self.state_dim, 128) 
+        self.l2 = nn.Linear(128, 128)
         self.l3 = nn.Linear(128, 16)
 
         self.mu = nn.Linear(16, self.action_dim)
         self.std = nn.Linear(16, self.action_dim)
 
-        self.device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
-        self.to(self.device)
-
-
     def forward(self, x):
-        x = F.leaky_relu(self.l1(x))
-        x = F.leaky_relu(self.l2(x))
-        x = F.leaky_relu(self.l3(x))
+        x = F.relu(self.l1(x))
+        x = F.relu(self.l2(x))
+        x = F.relu(self.l3(x))
 
         mu = torch.tanh(self.mu(x))
         std = F.softplus(self.std(x))
@@ -64,27 +53,21 @@ class Critic(nn.Module):
         self.action_dim = action_dim
         self.state_dim = state_dim
 
-        self.v1 = nn.Linear(self.state_dim, 32)
-        self.a1 = nn.Linear(self.action_dim, 32)
+        self.v1 = nn.Linear(self.state_dim, 128)
+        self.a1 = nn.Linear(self.action_dim, 128)
 
-        self.l2 = nn.Linear(64, 128) # NOTE: 64 = v1.size + a1.size
-        self.l3 = nn.Linear(128, 128)
-        self.q =  nn.Linear(128, 1)
-
-        self.device = ('cuda:0' if torch.cuda.is_available() else 'cpu')
-        self.to(self.device)
-
+        self.l2 = nn.Linear(256, 128) # NOTE: 256 = v1.size + a1.size
+        self.l3 = nn.Linear(128, 64)
+        self.q =  nn.Linear(64, 1)
 
     def forward(self, state_action):
         state, action = state_action[0], state_action[1]
 
-
-        v = F.leaky_relu(self.v1(state))
-        a = F.leaky_relu(self.a1(action))
-
+        v = F.relu(self.v1(state))
+        a = F.relu(self.a1(action.view(-1, 1)))
         x = torch.cat([v, a], dim=-1)
-        x = F.leaky_relu(self.l2(x))
-        x = F.leaky_relu(self.l3(x))
+        x = F.relu(self.l2(x))
+        x = F.relu(self.l3(x))
         x = self.q(x)
 
         return x

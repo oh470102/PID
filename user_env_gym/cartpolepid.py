@@ -95,8 +95,8 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.total_mass = self.masspole + self.masscart
         self.length = 0.5  # actually half the pole's length
         self.polemass_length = self.masspole * self.length
-        self.fric_coef = 0.05  # friction between floor and cart
-        self.fric_rot = 0.03  # friction between cart and pole
+        self.fric_coef = 0.0  # friction between floor and cart
+        self.fric_rot = 0.0  # friction between cart and pole
         self.force_mag = 10.0
         self.tau = 0.02  # seconds between state updates
         self.kinematics_integrator = "euler"
@@ -111,7 +111,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.dprev_err = 0
 
         # how long one response takes
-        self.resp_time = 20
+        self.resp_time = 5
 
         # Angle limit set to 2 * theta_threshold_radians so failing observation
         # is still within bounds.
@@ -151,7 +151,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         self.reset()
 
-        desired_state = np.array([0.3, 0, 0, 0])
+        desired_state = np.array([0, 0, 0, 0])
         reward = 0.0
 
         for i in range(int(self.resp_time / self.tau)):
@@ -162,11 +162,11 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             error = desired_state - self.stepstate
 
             if self.control_mode == 'pid1':
-                force = - self.pidcontrol1(error, action)
+                force = self.pidcontrol1(error, action)
             elif self.control_mode == 'pid2':
-                force = - self.pidcontrol2(error, action)
+                force = self.pidcontrol2(error, action)
 
-            def pend(y, t, F, m_c, m_p, l_p, g):
+            def pend(y, t, F, m_c, m_p, l_p, g, k, b):
                 x, x_dot, th, th_dot = y
                 sintheta = np.sin(th)
                 costheta = np.cos(th)
@@ -183,8 +183,10 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             
 
             sol = integrate.odeint(pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
-                float(force), self.masscart, self.masspole, self.length, self.gravity
+                float(force), self.masscart, self.masspole, self.length, self.gravity, self.fric_coef, self.fric_rot
             ))
+
+            print(sol)
 
             self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
             self.state.append(np.array(self.stepstate, dtype = np.float32))
@@ -222,20 +224,83 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         
         return np.array(self.state), reward, {}
     
-    def linstep(self, action):
+    def coefstep(self, action):
         # err_msg = f"{action!r} ({type(action)}) invalid"
         # assert -self.force_mag <= action and action <= self.force_mag, err_msg
         #assert self.stepstate is not None, "Call reset before using step method."
 
+        score = 8.0
+
+        for i in range(8):
+            self.coefreset(i+1)
+
+            desired_state = np.array([0, 0, 0, 0])
+
+            for i in range(int(self.resp_time / self.tau)):
+                
+                x, x_dot, theta, theta_dot = self.stepstate
+                # suppose that reference signal is 0 degree
+
+                error = desired_state - self.stepstate
+
+                if self.control_mode == 'pid1':
+                    force = self.pidcontrol1(error, action)
+                elif self.control_mode == 'pid2':
+                    force = self.pidcontrol2(error, action)
+
+                def pend(y, t, F, m_c, m_p, l_p, g, k, b):
+                    x, x_dot, th, th_dot = y
+                    sintheta = np.sin(th)
+                    costheta = np.cos(th)
+                    temp = (
+                        F + m_p * l_p * th_dot**2 * sintheta
+                    ) / (m_p + m_c)
+                    thetaacc = (g * sintheta - costheta * temp) / (
+                        l_p * (4.0 / 3.0 - m_p * costheta**2 / (m_p + m_c))
+                    )
+                    xacc = temp - m_p * l_p * thetaacc * costheta / (m_p + m_c)
+
+                    ytdt = [x_dot, xacc, th_dot, thetaacc]
+                    return ytdt
+                
+
+                sol = integrate.odeint(pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
+                    float(force), self.masscart, self.masspole, self.length, self.gravity
+                ))
+
+                self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
+                self.state.append(np.array(self.stepstate, dtype = np.float32))
+
+                terminated = bool(
+                    sol[1][0] < -self.x_threshold
+                    or sol[1][0] > self.x_threshold
+                    or sol[1][2] < -self.theta_threshold_radians
+                    or sol[1][2] > self.theta_threshold_radians
+                )
+
+                if self.render_mode == "human":
+                    self.render()
+
+                if terminated == True:
+                    score -= 1.0
+                    break
+
+        
+        
+        return score, {}
+    
+    def linstep(self, action):
+        '''
+        [P, I, D] --> next_state, reward, truncated, {}
+        '''
+
         self.reset()
 
-        desired_state = np.array([0, 0, 0, 0])
-        score, ISE = 0, 0
-        terminated = False
-        MAX_DUR = 500
+        test_states = []
+        desired_state = np.array([1, 0, 0, 0])
+        reward = 0.0
 
-        #while not terminated:
-        for i in range(MAX_DUR):
+        for i in range(500):
             
             x, x_dot, theta, theta_dot = self.stepstate
             # suppose that reference signal is 0 degree
@@ -243,20 +308,19 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             error = desired_state - self.stepstate
 
             if self.control_mode == 'pid1':
-                force = - self.pidcontrol1(error, action)
+                force = self.pidcontrol1(error, action)
             elif self.control_mode == 'pid2':
-                force = - self.pidcontrol2(error, action)
+                force = self.pidcontrol2(error, action)
 
             def pend(y, t, F, m_c, m_p, l_p, g):
                 x, x_dot, th, th_dot = y
                 
-                xacc = -5.88 * th + 0.8 * F
+                xacc = ((3 * g * m_p)/(4 - 3 * m_p)) * th + (4 / ((m_p + m_c) * (4 - 3 * m_p))) * F
 
-                thetaacc = 23.52 * th - 1.2 * F
+                thetaacc = ((3 * g * (m_p + m_c)) / (l_p * (4 - 3 * m_p))) * th + (3 / (l_p * (4 - 3 * m_p))) * F
 
                 ytdt = [x_dot, xacc, th_dot, thetaacc]
                 return ytdt
-            
 
             sol = integrate.odeint(pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
                 float(force), self.masscart, self.masspole, self.length, self.gravity
@@ -278,7 +342,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             if terminated:
                 if self.steps_beyond_terminated is None:
                     self.steps_beyond_terminated = 0
-                    score += 1
+                    reward += 1.0
                 else:
                     if self.steps_beyond_terminated == 0:
                         logger.warn(
@@ -288,15 +352,13 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                             "True' -- any further steps are undefined behavior."
                         )
                     self.steps_beyond_terminated += 1
-                    score += 0.0
+                    reward += 0.0
 
                 break
             else:
-                err = np.sum(np.square(error))/10
-                ISE -= err
-                score += (1 - err)
-                    
-        return score, ISE, np.stack(self.state[-10:], axis=0).reshape(-1)
+                reward += 1.0
+
+        return np.array(self.state), reward, {}
     
     def pidcontrol1(self, error, action):
         # action should be [K_p, K_i, K_d]
@@ -353,17 +415,14 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         *,
         seed: Optional[int] = None,
         options: Optional[dict] = None,
-                                       ):
+    ):
         super().reset(seed=seed)
         # Note that if you use custom reset bounds, it may lead to out-of-bound
         # state/observations.
-        SP = np.array([0, 0, 0, 0])
-
         low, high = utils.maybe_parse_reset_bounds(
-            options, -0.05, 0.05) 
-
+            options, -0.05, 0.05  # default low
+        )  # default high
         self.stepstate = self.np_random.uniform(low=low, high=high, size=(4,))
-        CV = self.stepstate
         self.steps_beyond_terminated = None
 
         self.integral = 0
@@ -374,9 +433,31 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         if self.render_mode == "human":
             self.render()
+        return np.array(self.stepstate, dtype=np.float32), {}
+    
+    def coefreset(
+        self,
+        divide,
+        *,
+        seed: Optional[int] = None,
+        options: Optional[dict] = None,
+    ):
+        super().reset(seed=seed)
+        # Note that if you use custom reset bounds, it may lead to out-of-bound
+        # state/observations.
 
-        #return desired_state - self.stepstate, {}
-        return SP
+        self.stepstate = [0,0, 0.2 * (4.5 - divide) / 3.5,0]
+        self.steps_beyond_terminated = None
+
+        self.integral = 0
+        self.prev_err = 0
+
+        self.state = []
+        self.state.append(self.stepstate)
+
+        if self.render_mode == "human":
+            self.render()
+        return np.array(self.stepstate, dtype=np.float32), {}
 
     def render(self):
         if self.render_mode is None:
@@ -440,7 +521,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         pole_coords = []
         for coord in [(l, b), (l, t), (r, t), (r, b)]:
-            coord = pygame.math.Vector2(coord).rotate_rad(-x[2])
+            coord = pygame.math.Vector2(coord).rotate_rad(x[2])
             coord = (coord[0] + cartx, coord[1] + carty + axleoffset)
             pole_coords.append(coord)
         gfxdraw.aapolygon(self.surf, pole_coords, (202, 152, 101))
