@@ -33,6 +33,18 @@ class Agent:
 
         self.action_map = [[a,b,c] for a in [1, -1, 0] for b in [1, -1, 0] for c in [1, -1, 0]]
 
+    def get_action(self, state):
+
+        q = self.actor(torch.from_numpy(state).float())
+        q_ = q.detach().numpy()
+
+        if random.random() < self.epsilon:
+            action = np.random.randint(0, 27)
+        else:
+            action = np.argmax(q_)
+
+        return action
+
     def train(self, mp=False):
 
         for ep in tqdm(range(self.NUM_EPISODES)):
@@ -49,13 +61,7 @@ class Agent:
                 if synch_i % self.SYNCH_FREQ == 0:
                     self.target_actor.load_state_dict(self.actor.state_dict())
 
-                q = self.actor(torch.from_numpy(state).float())
-                q_ = q.detach().numpy()
-
-                if random.random() < self.epsilon:
-                    action = np.random.randint(0, 27)
-                else:
-                    action = np.argmax(q_)
+                action = self.get_action(state)
                 
                 next_state, reward, term, trunc, _ = self.env.linstep(self.action_map[action])
                 done = term or trunc
@@ -107,8 +113,8 @@ class Agent:
             #print(f"current score (ep: {ep}): {score}")
 
             # check gradient during training
-            if ep % 5 == 0: 
-                for p in self.actor.parameters(): print(p.grad)
+            # if ep % 5 == 0: 
+            #     for p in self.actor.parameters(): print(p.grad)
 
         self.env.close()
         return self.scores
@@ -129,8 +135,9 @@ class Agent:
             print(f"Initial PID:{state}")
 
             while not done:
-                action, _ = self.get_action(state)
-                next_state, reward, term, trunc, _ = self.env.linstep(action.numpy())
+                q = self.actor(torch.from_numpy(state).float())
+                action = np.argmax(q.detach().numpy())
+                next_state, reward, term, trunc, _ = self.env.linstep(self.action_map[action])
                 done = term or trunc
                 score += reward
                 state = next_state
