@@ -494,7 +494,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             # print current best PID
             print(f"best stability: {self.best_stability:.2f} by {self.best_PID}")
 
-        truncated = True if self.time >= 40 else False 
+        truncated = True if self.time >= 75 else False 
 
         return self.PID_MIMO, reward, False, truncated, {}
     
