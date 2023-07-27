@@ -103,7 +103,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         # Angle at which to fail the episode
         self.theta_threshold_radians = 45 * 2 * math.pi / 360
-        self.x_threshold = 2.4
+        self.x_threshold = 1e10 # 2.4
 
         # temporary variables in order to implement digital pid (using velocity form)
         self.prev_mv = 0
@@ -203,7 +203,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         reward = 0.0
         terminated = False
 
-        for i in range(300):
+        for i in range(500):
             
             x, x_dot, theta, theta_dot = self.stepstate
             # suppose that reference signal is 0 degree
@@ -211,7 +211,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             error = desired_state - self.stepstate
 
             if self.control_mode == 'pid1':
-                force = self.pidcontrol1(error, action)
+                force = self.pidcontrol1(error, action) + np.random.randn(1)[0] * 9 # N(0,1) * noise_factor
             elif self.control_mode == 'pid2':
                 force = self.pidcontrol2(error, action)
 
