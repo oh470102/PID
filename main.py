@@ -9,7 +9,8 @@ env = cppid.CartPoleEnv(render_mode=None, control_mode='pid1')
 agent = Agent(env=env)
 
 # train agent
-t = timeit(stmt=agent.train, number=1)
+save = True
+t = timeit(stmt=agent.train(save=save), number=1)
 print(f"---Training Completed in {t:2f} seconds---")
 
 # see performance

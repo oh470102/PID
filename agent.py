@@ -6,7 +6,7 @@ import numpy as np, copy, random
 class Agent:
     def __init__(self, env):
         self.GAMMA = 0.9
-        self.NUM_EPISODES = 200
+        self.NUM_EPISODES = 1000
         self.SOLVED_SCORE = 200
 
         self.BATCH_SIZE = 200
@@ -39,13 +39,13 @@ class Agent:
         q_ = q.detach().numpy()
 
         if random.random() < self.epsilon:
-            action = np.random.randint(0, 27)
+            action = np.random.randint(0, self.action_dim)
         else:
             action = np.argmax(q_)
 
         return action
 
-    def train(self, mp=False):
+    def train(self, mp=False, save=False):
 
         for ep in tqdm(range(self.NUM_EPISODES)):
 
@@ -75,7 +75,6 @@ class Agent:
                 # print(f"next PID {next_state}")
 
                 state = next_state
-                self.save_PID(next_state)
 
                 if len(self.replay) > self.BATCH_SIZE:
                     minibatch = random.sample(self.replay, self.BATCH_SIZE)
@@ -105,25 +104,22 @@ class Agent:
                     self.epsilon_checked = True
 
             # comparison of initial & final PID with score
-            print(f"PID: {saved_init_state} to {state} with score {score}]")
+            # print(f"PID: {saved_init_state} to {state} with score {score:.2f}]")
 
             # print & save score
             if mp: self.queue.put(score)
             self.scores.append(score)
             #print(f"current score (ep: {ep}): {score}")
 
-            # check gradient during training
-            # if ep % 5 == 0: 
-            #     for p in self.actor.parameters(): print(p.grad)
-
         self.env.close()
+
+        if save: 
+            import datetime
+            PATH = "./saved_models/" + datetime.datetime.now().strftime('%m-%d $H:$M')
+            torch.save(self.actor, f"actor - {PATH}")
+
         return self.scores
  
-    def save_PID(self, state):
-        P, I, D = tuple(state)
-        self.P.append(P)
-        self.I.append(I)
-        self.D.append(D)
     
     def test_agent(self, env):
 

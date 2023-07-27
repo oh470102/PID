@@ -159,8 +159,13 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                   [0, 0, 0, 1]]
         
         self.prev_stability = None
+        self.best_stability = 0
+        self.best_PID = None
 
     def get_curr_stability(self):
+        '''
+        gets PID, returns -stability
+        '''
         P, I, D = tuple(map(int, list(self.PID)))
         stability = ctut.lin_stability_SISO(self.eng, P, I, D, self.A, self.B, self.C, self.D, self.E)
 
@@ -321,76 +326,87 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         '''
         self.prev_stability = self.get_curr_stability()
         self.PID += action
-        self.PID = np.clip(self.PID, 10, 150)
+        self.PID = np.clip(self.PID, 5, 150)
         self.time += 1
 
-        desired_state = np.array([0, 0, 0, 0])
-        score = 0.0
+        # desired_state = np.array([0, 0, 0, 0])
+        # score = 0.0
 
         self.iterreset()
-        for i in range(500):
 
-            x, x_dot, theta, theta_dot = self.stepstate
-            # suppose that reference signal is 0 degree
+        # for i in range(500):
 
-            error = desired_state - self.stepstate
+        #     x, x_dot, theta, theta_dot = self.stepstate
+        #     # suppose that reference signal is 0 degree
 
-            if self.control_mode == 'pid1':
-                force = self.pidcontrol1(error, self.PID)
-            elif self.control_mode == 'pid2':
-                force = self.pidcontrol2(error, self.PID)
+        #     error = desired_state - self.stepstate
 
-            def pend(y, t, F, m_c, m_p, l_p, g):
-                x, x_dot, th, th_dot = y
+        #     if self.control_mode == 'pid1':
+        #         force = self.pidcontrol1(error, self.PID)
+        #     elif self.control_mode == 'pid2':
+        #         force = self.pidcontrol2(error, self.PID)
+
+        #     def pend(y, t, F, m_c, m_p, l_p, g):
+        #         x, x_dot, th, th_dot = y
                 
-                xacc = ((3 * g * m_p)/(4 - 3 * m_p)) * th + (4 / ((m_p + m_c) * (4 - 3 * m_p))) * F
+        #         xacc = ((3 * g * m_p)/(4 - 3 * m_p)) * th + (4 / ((m_p + m_c) * (4 - 3 * m_p))) * F
 
-                thetaacc = ((3 * g * (m_p + m_c)) / (l_p * (4 - 3 * m_p))) * th + (3 / (l_p * (4 - 3 * m_p))) * F
+        #         thetaacc = ((3 * g * (m_p + m_c)) / (l_p * (4 - 3 * m_p))) * th + (3 / (l_p * (4 - 3 * m_p))) * F
 
-                ytdt = [x_dot, xacc, th_dot, thetaacc]
-                return ytdt
+        #         ytdt = [x_dot, xacc, th_dot, thetaacc]
+        #         return ytdt
 
-            sol = integrate.odeint(pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
-                float(force), self.masscart, self.masspole, self.length, self.gravity
-            ))
+        #     sol = integrate.odeint(pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
+        #         float(force), self.masscart, self.masspole, self.length, self.gravity
+        #     ))
 
-            self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
-            self.state.append(np.array(self.stepstate, dtype = np.float32))
+        #     self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
+        #     self.state.append(np.array(self.stepstate, dtype = np.float32))
 
-            terminated = bool(
-                sol[1][0] < -self.x_threshold
-                or sol[1][0] > self.x_threshold
-                or sol[1][2] < -self.theta_threshold_radians
-                or sol[1][2] > self.theta_threshold_radians
-            )
+        #     terminated = bool(
+        #         sol[1][0] < -self.x_threshold
+        #         or sol[1][0] > self.x_threshold
+        #         or sol[1][2] < -self.theta_threshold_radians
+        #         or sol[1][2] > self.theta_threshold_radians
+        #     )
 
-            if self.render_mode == "human":
-                self.render()
+        #     if self.render_mode == "human":
+        #         self.render()
 
-            if terminated:
-                if self.steps_beyond_terminated is None:
-                    self.steps_beyond_terminated = 0
-                    score += 0.0
-                else:
-                    if self.steps_beyond_terminated == 0:
-                        logger.warn(
-                            "You are calling 'step()' even though this "
-                            "environment has already returned terminated = True. You "
-                            "should always call 'reset()' once you receive 'terminated = "
-                            "True' -- any further steps are undefined behavior."
-                        )
-                    self.steps_beyond_terminated += 1
-                    score += 0.0
+        #     if terminated:
+        #         if self.steps_beyond_terminated is None:
+        #             self.steps_beyond_terminated = 0
+        #             score += 0.0
+        #         else:
+        #             if self.steps_beyond_terminated == 0:
+        #                 logger.warn(
+        #                     "You are calling 'step()' even though this "
+        #                     "environment has already returned terminated = True. You "
+        #                     "should always call 'reset()' once you receive 'terminated = "
+        #                     "True' -- any further steps are undefined behavior."
+        #                 )
+        #             self.steps_beyond_terminated += 1
+        #             score += 0.0
 
-                break
-            else:
-                score += 1.0
+        #         break
+        #     else:
+        #         score += 1.0
         
+        # calculate stability and reward
         new_stability = self.get_curr_stability()
         reward = 50 * (new_stability - self.prev_stability) 
         self.prev_stability = new_stability
 
-        truncated = True if self.time >= 100 else False 
+        # save good stability & PIDs
+        if self.prev_stability > self.best_stability:
+            self.best_PID = self.PID
+            self.best_stability = self.prev_stability
+
+            # print current best PID
+            print(f"best stability: {self.best_stability:.2f} by {self.best_PID}")
+
+        # episode end condition
+        truncated = True if self.time >= 40 else False 
 
         return self.PID, reward, False, truncated, {}
     
