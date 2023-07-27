@@ -15,7 +15,7 @@ class Agent:
 
         self.env = env
         self.state_dim = 6
-        self.action_dim = 729 # 3*3*3*3*3*3
+        self.action_dim = 729 # 3**6
 
         self.actor = model(self.state_dim, self.action_dim)
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=1e-3)
@@ -39,13 +39,13 @@ class Agent:
         q_ = q.detach().numpy()
 
         if random.random() < self.epsilon:
-            action = np.random.randint(0, int(3**6))
+            action = np.random.randint(0, int(self.action_dim))
         else:
             action = np.argmax(q_)
 
         return action
 
-    def train(self, mp=False):
+    def train(self, mp=False, save=False):
 
         for ep in tqdm(range(self.NUM_EPISODES)):
 
@@ -104,25 +104,20 @@ class Agent:
                     self.epsilon_checked = True
 
             # comparison of initial & final PID with score
-            print(f"PID: {saved_init_state} to {state} with score {score:.2f}")
+            # print(f"PID: {saved_init_state} to {state} with score {score:.2f}")
 
             # print & save score
             if mp: self.queue.put(score)
             self.scores.append(score)
-            #print(f"current score (ep: {ep}): {score}")
-
-            # check gradient during training
-            # if ep % 5 == 0: 
-            #     for p in self.actor.parameters(): print(p.grad)
+            
+        # save agent
+        if save: 
+            import datetime
+            PATH = "./saved_models/" + datetime.datetime.now().strftime('%m-%d %H:%M')
+            torch.save(self.actor, f"actor-{PATH}.pth")
 
         self.env.close()
         return self.scores
- 
-    def save_PID(self, state):
-        P, I, D = tuple(state)
-        self.P.append(P)
-        self.I.append(I)
-        self.D.append(D)
     
     def test_agent(self, env, MIMO=False):
 

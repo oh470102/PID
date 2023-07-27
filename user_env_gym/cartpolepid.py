@@ -147,6 +147,9 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.PID_MIMO = np.zeros(6)
         self.time = 0
 
+        self.best_stability = 0
+        self.best_PID = None
+
         self.A = [[0.0, 0.0, 1.0, 0.0],
                   [0.0, 0.0, 0.0, 1.0],
                   [0.0, 0.7945946, 0.0, 0.0],
@@ -220,12 +223,13 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         # assert -self.force_mag <= action and action <= self.force_mag, err_msg
         #assert self.stepstate is not None, "Call reset before using step method."
 
-        self.reset()
+        self.iterreset()
+        init_state = self.stepstate
 
         desired_state = np.array([0, 0, 0, 0])
         reward = 0.0
 
-        for i in range(int(self.resp_time / self.tau)):
+        for i in range(300):
             
             x, x_dot, theta, theta_dot = self.stepstate
             # suppose that reference signal is 0 degree
@@ -241,8 +245,6 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                 float(force), self.masscart, self.masspole, self.length, self.gravity, self.fric_coef, self.fric_rot
             ))
 
-            print(sol)
-
             self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
             self.state.append(np.array(self.stepstate, dtype = np.float32))
 
@@ -253,31 +255,13 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                 or sol[1][2] > self.theta_threshold_radians
             )
 
+            if terminated: break
+            else: reward += 1
+
             if self.render_mode == "human":
-                self.render()
-
-            # if terminated:
-            #     if self.steps_beyond_terminated is None:
-            #         self.steps_beyond_terminated = 0
-            #         reward += 1.0
-            #     else:
-            #         if self.steps_beyond_terminated == 0:
-            #             logger.warn(
-            #                 "You are calling 'step()' even though this "
-            #                 "environment has already returned terminated = True. You "
-            #                 "should always call 'reset()' once you receive 'terminated = "
-            #                 "True' -- any further steps are undefined behavior."
-            #             )
-            #         self.steps_beyond_terminated += 1
-            #         reward += 0.0
-
-            #     break
-            # else:
-            #     reward += 1.0
-
+                self.render()        
         
-        
-        return np.array(self.state), reward, {}
+        return reward, init_state
     
     def coefstep(self, action):
         # err_msg = f"{action!r} ({type(action)}) invalid"
@@ -502,7 +486,15 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         reward = 5 * (new_stability - self.prev_stability) 
         self.prev_stability = new_stability
 
-        truncated = True if self.time >= 50 else False 
+        # save good stability & PIDs
+        if self.prev_stability > self.best_stability:
+            self.best_stability = self.prev_stability
+            self.best_PID = self.PID_MIMO
+
+            # print current best PID
+            print(f"best stability: {self.best_stability:.2f} by {self.best_PID}")
+
+        truncated = True if self.time >= 40 else False 
 
         return self.PID_MIMO, reward, False, truncated, {}
     
@@ -597,8 +589,8 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         returns randomly initialized np.array([p1, p2, i1, i2, d1, d2])
         '''
         
-        position_PID = np.random.randint(low=10, high=150, size=3) * -1
-        angle_PID = np.random.randint(low=10, high=150, size=3) 
+        position_PID = np.random.randint(low=5, high=150, size=3) * -1
+        angle_PID = np.random.randint(low=5, high=150, size=3) 
 
         return self.combine_MIMO(position_PID, angle_PID)
 
