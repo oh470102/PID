@@ -217,19 +217,18 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         ytdt = [x_dot, xacc, th_dot, thetaacc]
         return ytdt
     
-
     def step(self, action):
         # err_msg = f"{action!r} ({type(action)}) invalid"
         # assert -self.force_mag <= action and action <= self.force_mag, err_msg
         #assert self.stepstate is not None, "Call reset before using step method."
 
-        self.iterreset()
+        #self.iterreset()
         init_state = self.stepstate
 
         desired_state = np.array([0, 0, 0, 0])
         reward = 0.0
 
-        for i in range(300):
+        for i in range(500):
             
             x, x_dot, theta, theta_dot = self.stepstate
             # suppose that reference signal is 0 degree
@@ -237,9 +236,9 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             error = desired_state - self.stepstate
 
             if self.control_mode == 'pid1':
-                force = self.pidcontrol1(error, action)
+                force = self.pidcontrol1(error, action) 
             elif self.control_mode == 'pid2':
-                force = self.pidcontrol2(error, action)
+                force = self.pidcontrol2(error, action) + np.random.randn(1)[0] * 9
 
             sol = integrate.odeint(self.pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
                 float(force), self.masscart, self.masspole, self.length, self.gravity, self.fric_coef, self.fric_rot
@@ -540,9 +539,6 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.dprev_err = self.prev_err
         self.prev_err = error
 
-
-        #print(mv)
-
         return mv
 
     def combine_MIMO(self, pos_PID, angle_PID):
@@ -630,12 +626,12 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         if MIMO is False: return (self.PID, {})
         elif MIMO is True: return (self.PID_MIMO, {})
 
-    def iterreset(self, seed=None, options=None):
+    def iterreset(self, seed=None, options=None, custom=None):
         super().reset(seed=seed)
         low, high = utils.maybe_parse_reset_bounds(
             options, -0.05, 0.05  # default low
         )  # default high
-        self.stepstate = self.np_random.uniform(low=low, high=high, size=(4,))
+        self.stepstate = self.np_random.uniform(low=low, high=high, size=(4,)) if custom is None else custom
         self.steps_beyond_terminated = None
 
         self.integral = 0
