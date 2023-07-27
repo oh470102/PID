@@ -199,6 +199,22 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
     def sigmoid(x):
         return 1.0 / (1.0 + np.exp(-x))
 
+    def pend(self, y, t, F, m_c, m_p, l_p, g, k, b):
+        x, x_dot, th, th_dot = y
+        sintheta = np.sin(th)
+        costheta = np.cos(th)
+        temp = (
+            F - m_p * l_p * th_dot**2 * sintheta
+        ) / (m_p + m_c)
+        thetaacc = (g * sintheta + costheta * temp) / (
+            l_p * (4.0 / 3.0 - m_p * costheta**2 / (m_p + m_c))
+        )
+        xacc = temp + m_p * l_p * thetaacc * costheta / (m_p + m_c)
+
+        ytdt = [x_dot, xacc, th_dot, thetaacc]
+        return ytdt
+    
+
     def step(self, action):
         # err_msg = f"{action!r} ({type(action)}) invalid"
         # assert -self.force_mag <= action and action <= self.force_mag, err_msg
@@ -221,23 +237,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             elif self.control_mode == 'pid2':
                 force = self.pidcontrol2(error, action)
 
-            def pend(y, t, F, m_c, m_p, l_p, g, k, b):
-                x, x_dot, th, th_dot = y
-                sintheta = np.sin(th)
-                costheta = np.cos(th)
-                temp = (
-                    F + m_p * l_p * th_dot**2 * sintheta
-                ) / (m_p + m_c)
-                thetaacc = (g * sintheta - costheta * temp) / (
-                    l_p * (4.0 / 3.0 - m_p * costheta**2 / (m_p + m_c))
-                )
-                xacc = temp - m_p * l_p * thetaacc * costheta / (m_p + m_c)
-
-                ytdt = [x_dot, xacc, th_dot, thetaacc]
-                return ytdt
-            
-
-            sol = integrate.odeint(pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
+            sol = integrate.odeint(self.pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
                 float(force), self.masscart, self.masspole, self.length, self.gravity, self.fric_coef, self.fric_rot
             ))
 
