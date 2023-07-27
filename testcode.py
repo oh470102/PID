@@ -40,14 +40,17 @@ Em = [[1, 0, 0, 0],
 eng = ctut.start_matengine()
 import numpy as np
 
+render = True if input("RENDER: ")=='True' else False
+
 while True:
     env = cppid.CartPoleEnv(render_mode='human', control_mode= 'pid1')
     custom_PID = np.array(list(map(int, input("ENTER CUSTOM PID: ").split())))
     PID, _ = env.reset(custom_PID=custom_PID)
     P, I, D = tuple(map(int, tuple(PID)))
 
-    for _ in range(3):
-        env.linstep(action=np.array([0, 0, 0]))
+    if render:
+      for _ in range(3):
+         env.linstep(action=np.array([0, 0, 0]))
         
     print(f"stability: {ctut.lin_stability_SISO(eng, P, I, D, As, Bs, Cs, Ds, Es)}")
     env.close()
