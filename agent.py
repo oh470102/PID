@@ -115,8 +115,8 @@ class Agent:
 
         if save: 
             import datetime
-            PATH = "./saved_models/" + datetime.datetime.now().strftime('%m-%d $H:$M')
-            torch.save(self.actor, f"actor - {PATH}")
+            PATH = "./saved_models/" + datetime.datetime.now().strftime('%m-%d %H:%M')
+            torch.save(self.actor, f"actor-{PATH}")
 
         return self.scores
  

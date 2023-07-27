@@ -162,6 +162,22 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.best_stability = 0
         self.best_PID = None
 
+    def pend(self, y, t, F, m_c, m_p, l_p, g, k, b):
+        x, x_dot, th, th_dot = y
+        sintheta = np.sin(th)
+        costheta = np.cos(th)
+        temp = (
+            F + m_p * l_p * th_dot**2 * sintheta
+        ) / (m_p + m_c)
+        thetaacc = (g * sintheta - costheta * temp) / (
+            l_p * (4.0 / 3.0 - m_p * costheta**2 / (m_p + m_c))
+        )
+        xacc = temp - m_p * l_p * thetaacc * costheta / (m_p + m_c)
+
+        ytdt = [x_dot, xacc, th_dot, thetaacc]
+
+        return ytdt
+
     def get_curr_stability(self):
         '''
         gets PID, returns -stability
@@ -176,16 +192,16 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         return 1.0 / (1.0 + np.exp(-x))
 
     def step(self, action):
-        # err_msg = f"{action!r} ({type(action)}) invalid"
-        # assert -self.force_mag <= action and action <= self.force_mag, err_msg
-        #assert self.stepstate is not None, "Call reset before using step method."
+        '''
+        gets [P, I, D] and returns total reward
+        '''
 
-        self.reset()
+        self.iterreset()
 
         desired_state = np.array([0, 0, 0, 0])
         reward = 0.0
 
-        for i in range(int(self.resp_time / self.tau)):
+        for i in range(600):
             
             x, x_dot, theta, theta_dot = self.stepstate
             # suppose that reference signal is 0 degree
@@ -197,27 +213,9 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             elif self.control_mode == 'pid2':
                 force = self.pidcontrol2(error, action)
 
-            def pend(y, t, F, m_c, m_p, l_p, g, k, b):
-                x, x_dot, th, th_dot = y
-                sintheta = np.sin(th)
-                costheta = np.cos(th)
-                temp = (
-                    F + m_p * l_p * th_dot**2 * sintheta
-                ) / (m_p + m_c)
-                thetaacc = (g * sintheta - costheta * temp) / (
-                    l_p * (4.0 / 3.0 - m_p * costheta**2 / (m_p + m_c))
-                )
-                xacc = temp - m_p * l_p * thetaacc * costheta / (m_p + m_c)
-
-                ytdt = [x_dot, xacc, th_dot, thetaacc]
-                return ytdt
-            
-
-            sol = integrate.odeint(pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
+            sol = integrate.odeint(self.pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
                 float(force), self.masscart, self.masspole, self.length, self.gravity, self.fric_coef, self.fric_rot
             ))
-
-            print(sol)
 
             self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
             self.state.append(np.array(self.stepstate, dtype = np.float32))
@@ -229,31 +227,13 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                 or sol[1][2] > self.theta_threshold_radians
             )
 
+            if terminated: break
+            else: reward += 1
+
             if self.render_mode == "human":
-                self.render()
-
-            # if terminated:
-            #     if self.steps_beyond_terminated is None:
-            #         self.steps_beyond_terminated = 0
-            #         reward += 1.0
-            #     else:
-            #         if self.steps_beyond_terminated == 0:
-            #             logger.warn(
-            #                 "You are calling 'step()' even though this "
-            #                 "environment has already returned terminated = True. You "
-            #                 "should always call 'reset()' once you receive 'terminated = "
-            #                 "True' -- any further steps are undefined behavior."
-            #             )
-            #         self.steps_beyond_terminated += 1
-            #         reward += 0.0
-
-            #     break
-            # else:
-            #     reward += 1.0
-
+                self.render()        
         
-        
-        return np.array(self.state), reward, {}
+        return reward
     
     def coefstep(self, action):
         # err_msg = f"{action!r} ({type(action)}) invalid"
@@ -482,8 +462,8 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
     def iterreset(self, seed=None, options=None):
         super().reset(seed=seed)
         low, high = utils.maybe_parse_reset_bounds(
-            options, -0.05, 0.05  # default low
-        )  # default high
+            options, -0.05, 0.05  # default low, default high
+        )  
         self.stepstate = self.np_random.uniform(low=low, high=high, size=(4,))
         self.steps_beyond_terminated = None
 
