@@ -225,7 +225,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         #self.iterreset()
         init_state = self.stepstate
 
-        desired_state = np.array([0, 0, 0, 0])
+        desired_state = np.array([1, 0, 0, 0])
         reward = 0.0
 
         for i in range(500):

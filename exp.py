@@ -26,7 +26,7 @@ for i, PID in tqdm(enumerate(PID_list, start=1)):
 
         rewards = []
 
-        for _ in range(5):
+        for _ in range(7):
             # set custom initial state
             custom_init_state = np.array([0, 0, 0.01*j, 0])
 
@@ -44,6 +44,7 @@ env.close()
 
 # display results
 fig, axs = plt.subplots(2, 3, figsize=(18, 10))
+fig.suptitle('noise=0')
 i = 0
 
 for scores in PID_dict.values():
