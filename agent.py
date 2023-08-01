@@ -49,7 +49,8 @@ class Agent:
 
         for ep in tqdm(range(self.NUM_EPISODES)):
 
-            state, _ = self.env.reset(MIMO=True) # reset and retrieve initial PID
+            # reset and retrieve initial PID
+            state, _ = self.env.reset(MIMO=True) 
             done, score, synch_i = False, 0, 0
 
             # save initial PID for comparison

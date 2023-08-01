@@ -1,3 +1,7 @@
+'''
+experimenting the tolrance of controllers against noise
+'''
+
 from user_env_gym import cartpolepid as cppid
 import numpy as np
 import matplotlib.pyplot as plt
