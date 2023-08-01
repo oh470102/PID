@@ -6,7 +6,7 @@ import numpy as np, copy, random
 class Agent:
     def __init__(self, env):
         self.GAMMA = 0.9
-        self.NUM_EPISODES = 1000
+        self.NUM_EPISODES = 3500
         self.SOLVED_SCORE = 200
 
         self.BATCH_SIZE = 200

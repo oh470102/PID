@@ -402,7 +402,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         reward = 50 * (new_stability - self.prev_stability) 
         self.prev_stability = new_stability
 
-        truncated = True if self.time >= 50 else False 
+        truncated = True if self.time >= 100 else False 
 
         return self.PID, reward, False, truncated, {}
     
