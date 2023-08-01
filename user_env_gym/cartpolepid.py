@@ -145,11 +145,13 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         self.PID = np.zeros(3)
         self.PID_MIMO = np.zeros(6)
-        self.PID_MIMO_BASELINE = np.array([-98, 137, -134, 48, -39, 31]) # s=1.78
+        self.PID_MIMO_last = np.zeros(6)
+        self.PID_MIMO_BASELINE = np.array([-46, 130, -25, 126, -20,  16])
         self.time = 0
 
         self.best_stability = 0
         self.best_PID = None
+        self.stability_threshold = 0
 
         self.A = [[0.0, 0.0, 1.0, 0.0],
                   [0.0, 0.0, 0.0, 1.0],
@@ -181,16 +183,17 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
               [0, 0, 0, 1]]
 
         self.prev_stability = None
+        self.desired_state = np.array([1,0,0,0])
 
-    def get_curr_stability(self, MIMO=False, realdynamics=False):
+    def get_curr_stability(self, MIMO=False, online=False, x=None, theta=None):
         '''
         returns stability using the current PID (SISO or MIMO, stored as class instance var.)
         '''
 
-        if realdynamics:
+        if online:
             pass
 
-        if not realdynamics: 
+        if not online:
 
             if not MIMO:
                 P, I, D = tuple(map(int, list(self.PID)))
@@ -223,21 +226,92 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         ytdt = [x_dot, xacc, th_dot, thetaacc]
         return ytdt
     
-    def step(self, action):
+
+    def step_online(self, action):
         '''
-        simulation in real dynamics
-        action = PID
+        NOTE: run iterreset() at the very first time only.
+              
         '''
 
-        desired_state = np.array([1, 0, 0, 0])
-        reward = 0.0
+        # reset env 
+        if self.time==0: self.iterreset() 
+
+        # save current PID 
+        self.PID_MIMO_last = self.PID_MIMO
+
+        # update PID by action
+        self.PID_MIMO += action
+        self.PID_MIMO = self.clip_PID_MIMO(self.PID_MIMO)
+
+        # record x, theta to keep track of controller stability
         x_list, theta_list = [], []
 
-        self.iterreset()
         for _ in range(500):
             
             x, x_dot, theta, theta_dot = self.stepstate
             x_list.append(x); theta_list.append(theta)
+
+            # if controller becomes unstable, stop and re-set PID
+            stability = self.get_curr_stability(MIMO=True, online=True, x=x_list, theta=theta_list)
+            if stability < self.stability_threshold:
+
+                # either go back to baseline
+                self.PID_MIMO = self.PID_MIMO_BASELINE
+
+                # or the previous PID value
+                self.PID_MIMO = self.PID_MIMO_last
+
+                break
+
+            error = self.desired_state - self.stepstate
+
+            if self.control_mode == 'pid1':
+                force = self.pidcontrol1(error, action) 
+            elif self.control_mode == 'pid2':
+                force = self.pidcontrol2(error, action) 
+
+            sol = integrate.odeint(self.pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
+                float(force), self.masscart, self.masspole, self.length, self.gravity, self.fric_coef, self.fric_rot
+            ))
+
+            self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
+            self.state.append(np.array(self.stepstate, dtype = np.float32))
+
+            terminated = bool(
+                sol[1][0] < -self.x_threshold
+                or sol[1][0] > self.x_threshold
+                or sol[1][2] < -self.theta_threshold_radians
+                or sol[1][2] > self.theta_threshold_radians
+            )
+
+            if terminated: break
+
+            if self.render_mode == "human":
+                self.render()        
+
+        # set next_state as updated PID 
+        next_state = self.PID_MIMO
+
+        # get reward by calculating improvement in stability
+        reward = None 
+
+        # episode ends after 70 PID updates
+        truncated = True if self.time >= 70 else False
+        self.time += 1
+        
+        return next_state, reward, False, truncated, {}
+
+
+    def step(self, action):
+
+        init_state = self.stepstate
+
+        desired_state = np.array([1, 0, 0, 0])
+        reward = 0.0
+
+        for i in range(500):
+            
+            x, x_dot, theta, theta_dot = self.stepstate
             # suppose that reference signal is 0 degree
 
             error = desired_state - self.stepstate
@@ -245,7 +319,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             if self.control_mode == 'pid1':
                 force = self.pidcontrol1(error, action) 
             elif self.control_mode == 'pid2':
-                force = self.pidcontrol2(error, action)
+                force = self.pidcontrol2(error, action) + np.random.randn(1)[0] * 9
 
             sol = integrate.odeint(self.pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
                 float(force), self.masscart, self.masspole, self.length, self.gravity, self.fric_coef, self.fric_rot
@@ -267,7 +341,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             if self.render_mode == "human":
                 self.render()        
         
-        return reward, x_list, theta_list
+        return reward, init_state
     
     def coefstep(self, action):
         # err_msg = f"{action!r} ({type(action)}) invalid"
@@ -503,89 +577,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         truncated = True if self.time >= 75 else False 
 
         return self.PID_MIMO, reward, False, truncated, {}
-
-    def online_tuning_step(self, action):
-        
-        '''
-        input: action = [dP1, dP2, dI1, dI2, dD1, dD2] <numpy array>
-        output: next_PID, reward = (improvement in stability), termination = False, truncation, {}
-
-        if controller becomes "unstable" during training, PID immediately resets to the baseline values.
-        '''
-
-        self.prev_stability = self.get_curr_stability(MIMO=True, realdynamics=True)
-        self.PID_MIMO += action
-        self.PID_MIMO = self.clip_PID_MIMO(self.PID_MIMO)   
-        self.time += 1
-
-        self.iterreset()
-        desired_state = np.array([1, 0, 0, 0])
-
-        for _ in range(500):
-
-            x, x_dot, theta, theta_dot = self.stepstate
-            # suppose that reference signal is 0 degree
-
-            error = desired_state - self.stepstate
-
-            if self.control_mode == 'pid1':
-                force = self.pidcontrol1(error, self.PID)
-            elif self.control_mode == 'pid2':
-                force = self.pidcontrol2(error, self.group_MIMO(self.PID_MIMO))
-
-            sol = integrate.odeint(self.pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
-                float(force), self.masscart, self.masspole, self.length, self.gravity
-            ))
-
-            self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
-            self.state.append(np.array(self.stepstate, dtype = np.float32))
-
-            terminated = bool(
-                sol[1][0] < -self.x_threshold
-                or sol[1][0] > self.x_threshold
-                or sol[1][2] < -self.theta_threshold_radians
-                or sol[1][2] > self.theta_threshold_radians
-            )
-
-            if self.render_mode == "human":
-                self.render()
-
-            if terminated:
-                if self.steps_beyond_terminated is None:
-                    self.steps_beyond_terminated = 0
-                    score += 0.0
-                else:
-                    if self.steps_beyond_terminated == 0:
-                        logger.warn(
-                            "You are calling 'step()' even though this "
-                            "environment has already returned terminated = True. You "
-                            "should always call 'reset()' once you receive 'terminated = "
-                            "True' -- any further steps are undefined behavior."
-                        )
-                    self.steps_beyond_terminated += 1
-                    score += 0.0
-
-                break
-            else:
-                score += 1.0
-        
-        
-        new_stability = self.get_curr_stability(MIMO=True, realdynamics=True)
-        reward = 5 * (new_stability - self.prev_stability) 
-        self.prev_stability = new_stability
-
-        # save good stability & PIDs
-        if self.prev_stability > self.best_stability:
-            self.best_stability = self.prev_stability
-            self.best_PID = self.PID_MIMO
-
-            # print current best PID
-            print(f"best stability: {self.best_stability:.2f} by {self.best_PID}")
-
-        truncated = True if self.time >= 75 else False 
-
-        return self.PID_MIMO, reward, False, truncated, {}
-
+    
     def pidcontrol1(self, error, action):
         # action should be [K_p, K_i, K_d]
         error = error[2]
