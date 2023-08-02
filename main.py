@@ -13,4 +13,4 @@ t = timeit(stmt=agent.train(save=True), number=1)
 print(f"---Training Completed in {t:2f} seconds---")
 
 # see performance
-agent.test_agent(cppid.CartPoleEnv(render_mode='human', control_mode='pid2'), MIMO=True)
+agent.test_agent(cppid.CartPoleEnv(render_mode='none', control_mode='pid2'), MIMO=True)

@@ -6,12 +6,12 @@ import numpy as np, copy, random
 class Agent:
     def __init__(self, env):
         self.GAMMA = 0.9
-        self.NUM_EPISODES = 3500
+        self.NUM_EPISODES = 1_500
         self.SOLVED_SCORE = 200
 
         self.BATCH_SIZE = 200
         self.SYNCH_FREQ = 500
-        self.MEM_SIZE = 50000
+        self.MEM_SIZE = 100_000
 
         self.env = env
         self.state_dim = 6
@@ -50,11 +50,13 @@ class Agent:
         for ep in tqdm(range(self.NUM_EPISODES)):
 
             # reset and retrieve initial PID
-            state, _ = self.env.reset(MIMO=True) 
+            state, _ = self.env.reset(MIMO=True, online=True) 
             done, score, synch_i = False, 0, 0
 
             # save initial PID for comparison
             saved_init_state = state
+
+            if ep==1: raise Exception
 
             while not done:
                 
@@ -64,16 +66,17 @@ class Agent:
 
                 action = self.get_action(state)
                 
-                next_state, reward, term, trunc, _ = self.env.linstep_MIMO(self.action_map[action])
+                next_state, reward, term, trunc, _ = self.env.step_online(np.array(self.action_map[action]))
                 done = term or trunc
                 exp = (torch.tensor(state), action, reward, torch.tensor(next_state), done)
                 self.replay.append(exp)
                 score += reward
 
-                # print(f"initial PID: {state}")
-                # print(f"Action: {action}")
-                # print(f"reward: {reward}")
-                # print(f"next PID {next_state}")
+                print(f"------on episode {ep}, time {synch_i}------")
+                print(f"initial PID: {state}")
+                print(f"Action: {self.action_map[action]}")
+                print(f"reward: {reward}")
+                print(f"next PID {next_state}")
 
                 state = next_state
 
