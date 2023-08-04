@@ -220,21 +220,28 @@ def calISE(traj, refsig):
                return -1
 
      SISO = False
-     ISE = [0]
 
      if isinstance(refsig, numbers.Real):
           SISO = True
 
+     # append errors
      if SISO:
+          ISE = []
           for step in traj:
-               ISE[0] += (refsig - step)**2
+               ISE.append((refsig - step)**2)
+               return sum(ISE)
      else:
-          ISE = [0] * len(refsig)
+          ISE_pos, ISE_angle = [], []
           for step in traj:
-               for k in range(len(step)):
-                    ISE[k] += (step[k] - refsig[k])**2
+               ISE_pos.append( (step[0] - refsig[0]) **2 )
+               ISE_angle.append( (step[1] - refsig[1]) ** 2)
      
-     return ISE
+          # normalize errors for MIMO
+          ISE_pos, ISE_angle = np.array(ISE_pos), np.array(ISE_angle)
+          ISE_pos = np.abs((ISE_pos - ISE_pos.mean()) / ISE_pos.std())
+          ISE_angle = np.abs((ISE_angle - ISE_angle.mean()) / ISE_angle.std())
+     
+          return (ISE_pos.sum() + ISE_angle.sum())
 
 def calThreshold(trajlist):
      assert isinstance(trajlist, collections.abc.Sequence), "trajectory list should be a sequence"

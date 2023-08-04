@@ -9,8 +9,9 @@ env = cppid.CartPoleEnv(render_mode=None, control_mode='pid2')
 agent = Agent(env=env)
 
 # train agent
-t = timeit(stmt=agent.train(save=True), number=1)
-print(f"---Training Completed in {t:2f} seconds---")
+def t(): agent.train(save=True)
+tt = timeit(stmt=lambda: t(), number=1)
+print(f"---Training Completed in {tt:2f} seconds---")
 
 # see performance
 agent.test_agent(cppid.CartPoleEnv(render_mode='none', control_mode='pid2'), MIMO=True)

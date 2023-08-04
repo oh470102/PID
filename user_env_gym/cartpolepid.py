@@ -151,8 +151,9 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         self.best_stability = 0
         self.best_PID = None
+        self.best_ISE = 1e3              # baseline default is 737.
         self.stability_threshold = 0
-        self.lin_stability_threshold = 0 #np.min(1, -ctut.lin_stability_MIMO(self.PID_MIMO_BASELINE)/2)
+        self.lin_stability_threshold = 0 # fix to np.min(1, -ctut.lin_stability_MIMO(self.PID_MIMO_BASELINE)/2) later.
 
         self.A = [[0.0, 0.0, 1.0, 0.0],
                   [0.0, 0.0, 0.0, 1.0],
@@ -189,7 +190,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.x_upper_bound, self.x_lower_bound, self.theta_upper_bound, self.theta_lower_bound, self.prev_ISE = self.get_bound_by_rollout()
         print(self.x_upper_bound, self.x_lower_bound, self.theta_upper_bound, self.theta_lower_bound, self.prev_ISE)
 
-    def get_bound_by_rollout(self, generosity=0.5):
+    def get_bound_by_rollout(self, generosity=0.6):
         '''
         calculates upper and lower bounds of state variables through a rollout of baseline PID
         larger generosity means the bound gets more generous (greater bound)
@@ -288,10 +289,10 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         '''
 
         # reset env 
-        self.iterreset() 
+        self.iterreset(custom=np.array([0,0,0,0])) 
 
         # save current PID 
-        self.PID_MIMO_last = self.PID_MIMO
+        self.PID_MIMO_last = self.PID_MIMO.copy()
 
         # update & clip PID by action
         self.PID_MIMO += action
@@ -307,15 +308,15 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             # calculate linear stability, just once prior to simulation
             if i == 0:
                 lin_stability = self.get_curr_stability(MIMO=True)
-                print(f"stability: {lin_stability}")
+                # print(f"stability: {lin_stability}")
 
                 # if too unstable, break immediately.
                 if lin_stability < self.lin_stability_threshold:
                     
-                    print("TOO UNSTABLE!")
+                    # print("TOO UNSTABLE!")
 
                     # re-set PID to previous PID value
-                    self.PID_MIMO = self.PID_MIMO_last
+                    self.PID_MIMO = self.PID_MIMO_last.copy()
 
                     break
 
@@ -330,20 +331,20 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             # if object's position gets out-of-bound, break immediately.
             if x_reached_setpoint and not self.x_lower_bound < x < self.x_upper_bound:
 
-                print(f"{x:.3f} was out of bound (position)")
+                # print(f"{x:.3f} was out of bound (position)")
 
                 # re-set PID to previous PID value
-                self.PID_MIMO = self.PID_MIMO_last
+                self.PID_MIMO = self.PID_MIMO_last.copy()
 
                 break
             
             # if object's angle gets out-of-bound, break immediately.
             if theta_reached_setpoint and not self.theta_lower_bound < theta < self.theta_upper_bound:
 
-                print(f"{theta:.3f} was out of bound (angle).")
+                # print(f"{theta:.3f} was out of bound (angle).")
 
                 # re-set PID to previous PID value
-                self.PID_MIMO = self.PID_MIMO_last
+                self.PID_MIMO = self.PID_MIMO_last.copy()
 
                 break
 
@@ -374,22 +375,25 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                 self.render()        
 
         # set next_state as updated PID 
-        next_state = self.PID_MIMO
+        next_state = self.PID_MIMO.copy()
 
         # controller was too unstable, and action was not [0] x 6
-        print(self.PID_MIMO_last)
-        print(self.PID_MIMO)
         if list(self.PID_MIMO_last) == list(self.PID_MIMO) and list(action) != list(np.zeros(6, dtype=np.int64)):
             reward = -1
         
         # controller was stable, then calculate ISE improvements
         else:
-            curr_ISE = ctut.calISE(trajectory, self.desired_state) 
-            reward = (self.prev_ISE - curr_ISE) / 10
+            curr_ISE = ctut.calISE(trajectory, self.desired_state)
+            if curr_ISE < self.best_ISE: 
+                self.best_ISE = curr_ISE.copy() 
+                reward = 15
+                print(f"best ISE: {self.best_ISE:.2f} by {self.PID_MIMO}")
+            else:
+                reward = (self.prev_ISE - curr_ISE) / 10
             self.prev_ISE = curr_ISE
 
-        # episode ends after 70 PID updates
-        truncated = True if self.time >= 70 else False
+        # episode ends after 50 PID updates
+        truncated = True if self.time >= 50 else False
         self.time += 1
 
         return next_state, reward, False, truncated, {}
@@ -402,7 +406,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         reward = 0.0
         x_list, theta_list = [], []
 
-        for i in range(500):
+        for i in range(1000):
             
             x, x_dot, theta, theta_dot = self.stepstate
             x_list.append(x); theta_list.append(theta)
@@ -413,7 +417,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             if self.control_mode == 'pid1':
                 force = self.pidcontrol1(error, action) 
             elif self.control_mode == 'pid2':
-                force = self.pidcontrol2(error, action) + 3 * np.random.randn(1)[0]
+                force = self.pidcontrol2(error, action) #+ 3 * np.random.randn(1)[0]
 
             sol = integrate.odeint(self.pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
                 float(force), self.masscart, self.masspole, self.length, self.gravity, self.fric_coef, self.fric_rot
@@ -598,7 +602,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         #''' NOTE: temporarily commented to increase training speed.
         x_list, theta_list = [], []
-        for i in range(500):
+        for i in range(1000):
 
             x, x_dot, theta, theta_dot = self.stepstate
             x_list.append(x); theta_list.append(theta)
@@ -775,8 +779,8 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         P1, P2, I1, I2, D1, D2 = tuple(map(int, list(PID_MIMO)))
         
-        clipped_pos_PID = np.clip(np.array([P1, I1, D1]), -150, -10)
-        clipped_angle_PID = np.clip(np.array([P2, I2, D2]), 10, 150)
+        clipped_pos_PID = np.clip(np.array([P1, I1, D1]), -150, -5)
+        clipped_angle_PID = np.clip(np.array([P2, I2, D2]), 5, 150)
 
         return self.combine_MIMO(clipped_pos_PID, clipped_angle_PID)
 
@@ -799,7 +803,8 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             self.PID_MIMO = self.get_random_MIMO() if custom_PID_MIMO is None else custom_PID_MIMO
 
         elif online is True:
-            self.PID_MIMO = self.PID_MIMO_BASELINE
+            # give some noise to baseline PID for better exploration chances
+            self.PID_MIMO = self.PID_MIMO_BASELINE.copy() + np.random.uniform(low=-5, high=5, size=6)
 
         self.time = 0
         self.prev_stability = None
@@ -807,8 +812,9 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         if self.render_mode == "human":
             self.render()
 
-        if MIMO is False: return (self.PID, {})
-        elif MIMO is True: return (self.PID_MIMO, {})
+        if MIMO is False: return (self.PID.copy(), {})
+        elif MIMO is True: return (self.PID_MIMO.copy(), {})
+        # returns a copy to prevent unseen side-effects.
 
     def iterreset(self, seed=None, options=None, custom=None):
         super().reset(seed=seed)

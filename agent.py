@@ -6,7 +6,7 @@ import numpy as np, copy, random
 class Agent:
     def __init__(self, env):
         self.GAMMA = 0.9
-        self.NUM_EPISODES = 1_500
+        self.NUM_EPISODES = 500
         self.SOLVED_SCORE = 200
 
         self.BATCH_SIZE = 200
@@ -56,8 +56,6 @@ class Agent:
             # save initial PID for comparison
             saved_init_state = state
 
-            if ep==1: raise Exception
-
             while not done:
                 
                 synch_i += 1
@@ -65,18 +63,20 @@ class Agent:
                     self.target_actor.load_state_dict(self.actor.state_dict())
 
                 action = self.get_action(state)
-                
-                next_state, reward, term, trunc, _ = self.env.step_online(np.array(self.action_map[action]))
+
+                # print(f"------on episode {ep}, time {synch_i-1}------")
+                # give some noise to action
+                next_state, reward, term, trunc, _ = self.env.step_online(np.array(self.action_map[action]) + np.random.normal(loc=0, scale=0.5, size=6))
                 done = term or trunc
                 exp = (torch.tensor(state), action, reward, torch.tensor(next_state), done)
                 self.replay.append(exp)
                 score += reward
 
-                print(f"------on episode {ep}, time {synch_i}------")
-                print(f"initial PID: {state}")
-                print(f"Action: {self.action_map[action]}")
-                print(f"reward: {reward}")
-                print(f"next PID {next_state}")
+                # if synch_i % 10 == 0:
+                #     print(f"initial PID: {state}")
+                #     print(f"Action: {self.action_map[action]}")
+                #     print(f"reward: {reward}")
+                #     print(f"next PID {next_state}")
 
                 state = next_state
 
@@ -101,7 +101,7 @@ class Agent:
                     self.actor_opt.step()
 
             # reduce epsilon, print when it dies
-            if self.epsilon > 0.1: self.epsilon -= 2/self.NUM_EPISODES 
+            if self.epsilon > 0.1: self.epsilon -= 2.2/self.NUM_EPISODES 
             else:
                 if not self.epsilon_checked:
                     print(f"EPSILON died on EP {ep}")
@@ -109,6 +109,7 @@ class Agent:
 
             # comparison of initial & final PID with score
             # print(f"PID: {saved_init_state} to {state} with score {score:.2f}")
+            print(f"score: {score:.2f}")
 
             # print & save score
             if mp: self.queue.put(score)
@@ -118,9 +119,12 @@ class Agent:
         if save: 
             import datetime
             PATH = "./saved_models/" + datetime.datetime.now().strftime('%m-%d %H:%M')
-            torch.save(self.actor, f"actor-{PATH}.pth")
+            torch.save(self.actor, f"{PATH}.pth")
 
         self.env.close()
+
+        import matplotlib.pyplot as plt
+        plt.plot(self.scores)
         return self.scores
     
     def test_agent(self, env, MIMO=False):
@@ -146,14 +150,14 @@ class Agent:
         
         elif MIMO:
             for _ in range(1):
-                state, _ = env.reset(MIMO=True)
+                state, _ = env.reset(MIMO=True, online=True)
                 done, score = False, 0
                 print(f"Initial PID:{state}")
 
                 while not done:
                     q = self.actor(torch.from_numpy(state).float())
                     action = np.argmax(q.detach().numpy())
-                    next_state, reward, term, trunc, _ = self.env.linstep_MIMO(self.action_map[action])
+                    next_state, reward, term, trunc, _ = self.env.step_online(self.action_map[action])
                     done = term or trunc
                     score += reward
                     state = next_state
