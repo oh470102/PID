@@ -5,8 +5,8 @@ import numpy as np, copy, random
 
 class Agent:
     def __init__(self, env):
-        self.GAMMA = 0.9
-        self.NUM_EPISODES = 500
+        self.GAMMA = 0.99
+        self.NUM_EPISODES = 1_000
         self.SOLVED_SCORE = 200
 
         self.BATCH_SIZE = 200
@@ -84,18 +84,25 @@ class Agent:
                     minibatch = random.sample(self.replay, self.BATCH_SIZE)
                     state_batch = torch.stack([s1 for s1, a, r, s2, d in minibatch])
                     action_batch = torch.Tensor([a for s1, a, r, s2, d in minibatch])
-                    reward_batch = torch.Tensor([r for s1, a, r, s2, d in minibatch])
+                    reward_batch = torch.Tensor([r for s1, a, r, s2, d in minibatch]).reshape(-1, 1)
                     state2_batch = torch.stack([s2 for s1, a, r, s2, d in minibatch])
-                    done_batch = torch.Tensor([d for s1, a, r, s2, d in minibatch])
+                    done_batch = torch.Tensor([d for s1, a, r, s2, d in minibatch]).reshape(-1, 1)
 
                     q = self.actor(state_batch.float())
                     with torch.no_grad():
-                        q_next = self.target_actor(state2_batch.float())
-                    
-                    Y = reward_batch + self.GAMMA * ((1 - done_batch) * torch.max(q_next, dim=1)[0])
-                    X = q.gather(dim=1, index=action_batch.long().unsqueeze(dim=1)).squeeze()
+                        ''' 
+                        DDQN 
+                            - find argmax (indices) using actor network,
+                            - find actual Q values using target-actor network.
+                            - NOTE: use tensors of same shape (B, 1), otherwise unexpected broadcasting will take place.
+                        '''
+                        index = self.actor(state2_batch.float()).argmax(dim=1, keepdim=True)
+                        q_next = self.target_actor(state2_batch.float()).gather(dim=1, index=index)
 
-                    loss = F.mse_loss(X, Y.detach())
+                    Y = reward_batch + self.GAMMA * ((1 - done_batch) * q_next)
+                    X = q.gather(dim=1, index=action_batch.long().unsqueeze(dim=1))
+
+                    loss = F.smooth_l1_loss(X, Y.detach())
                     self.actor_opt.zero_grad()
                     loss.backward()
                     self.actor_opt.step()
@@ -109,7 +116,7 @@ class Agent:
 
             # comparison of initial & final PID with score
             # print(f"PID: {saved_init_state} to {state} with score {score:.2f}")
-            print(f"score: {score:.2f}")
+            # print(f"score: {score:.2f}")
 
             # print & save score
             if mp: self.queue.put(score)

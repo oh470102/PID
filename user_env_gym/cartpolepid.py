@@ -151,7 +151,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         self.best_stability = 0
         self.best_PID = None
-        self.best_ISE = 1e3              # baseline default is 737.
+        self.best_ISE = 737              # baseline ISE is 737.
         self.stability_threshold = 0
         self.lin_stability_threshold = 0 # fix to np.min(1, -ctut.lin_stability_MIMO(self.PID_MIMO_BASELINE)/2) later.
 
@@ -384,12 +384,13 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         # controller was stable, then calculate ISE improvements
         else:
             curr_ISE = ctut.calISE(trajectory, self.desired_state)
+
+            # print if new best ISE is found 
             if curr_ISE < self.best_ISE: 
                 self.best_ISE = curr_ISE.copy() 
-                reward = 15
                 print(f"best ISE: {self.best_ISE:.2f} by {self.PID_MIMO}")
-            else:
-                reward = (self.prev_ISE - curr_ISE) / 10
+            
+            reward = (self.prev_ISE - curr_ISE) / 10
             self.prev_ISE = curr_ISE
 
         # episode ends after 50 PID updates
