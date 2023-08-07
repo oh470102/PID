@@ -17,7 +17,7 @@ class Agent:
         self.state_dim = 6
         self.action_dim = 729 # 3**6
 
-        self.actor = model(self.state_dim, self.action_dim)
+        self.actor = duel_model(self.state_dim, self.action_dim)
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=1e-3)
         
         self.target_actor = copy.deepcopy(self.actor)
@@ -91,7 +91,7 @@ class Agent:
                     q = self.actor(state_batch.float())
                     with torch.no_grad():
                         ''' 
-                        DDQN 
+                        Double DQN 
                             - find argmax (indices) using actor network,
                             - find actual Q values using target-actor network.
                             - NOTE: use tensors of same shape (B, 1), otherwise unexpected broadcasting will take place.
@@ -105,6 +105,11 @@ class Agent:
                     loss = F.smooth_l1_loss(X, Y.detach())
                     self.actor_opt.zero_grad()
                     loss.backward()
+                    '''
+                    Duel DQN
+                        - clips gradient to prevent gradient explosions
+                    '''
+                    torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 10.0)
                     self.actor_opt.step()
 
             # reduce epsilon, print when it dies
