@@ -1,7 +1,7 @@
 from networks import *
 from tqdm import tqdm
 from collections import deque
-import numpy as np, copy, random
+import numpy as np, copy, random, matplotlib.pyplot as plt
 
 class Agent:
     def __init__(self, env):
@@ -46,6 +46,8 @@ class Agent:
         return action
 
     def train(self, mp=False, save=False):
+
+        plt.ion()
 
         for ep in tqdm(range(self.NUM_EPISODES)):
 
@@ -134,9 +136,8 @@ class Agent:
             torch.save(self.actor, f"{PATH}.pth")
 
         self.env.close()
+        plt.ioff()
 
-        import matplotlib.pyplot as plt
-        plt.plot(self.scores)
         return self.scores
     
     def test_agent(self, env, MIMO=False):

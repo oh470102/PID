@@ -7,8 +7,9 @@ import math
 from typing import Optional, Union
 
 import numpy as np
-
+import time
 from scipy import integrate
+import matplotlib.pyplot as plt
 
 import gymnasium as gym
 from gymnasium import logger, spaces
@@ -155,6 +156,9 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.stability_threshold = 0
         self.lin_stability_threshold = 0 # fix to np.min(1, -ctut.lin_stability_MIMO(self.PID_MIMO_BASELINE)/2) later.
 
+        self.x_trajectory = []
+        self.theta_trajectory = []
+
         self.A = [[0.0, 0.0, 1.0, 0.0],
                   [0.0, 0.0, 0.0, 1.0],
                   [0.0, 0.7945946, 0.0, 0.0],
@@ -282,6 +286,63 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         ytdt = [x_dot, xacc, th_dot, thetaacc]
         return ytdt
     
+    def restore_setup(self):
+
+        '''
+        Restores the original cart-pole setup 
+        when the controller becomes too unstable.
+        Baseline PID is used for this process.
+        '''
+
+        x_reached_setpoint, theta_reached_setpoint = False, False
+        desired_state = np.array([0,0,0,0])
+        action = None
+
+        print("------Restoring Process Initiated-------", end='::::::')
+
+        while True:
+
+            x, x_dot, theta, theta_dot = self.stepstate
+            self.x_trajectory.append(x); self.theta_trajectory.append(theta)
+
+            # check whether x, theta is near setpoint
+            if x_reached_setpoint is False and abs(x - desired_state[0]) < 0.05: x_reached_setpoint = True
+            if theta_reached_setpoint is False and abs(theta - desired_state[2]) < 0.05: theta_reached_setpoint = True
+
+            error = desired_state - self.stepstate
+
+            if self.control_mode == 'pid1':
+                force = self.pidcontrol1(error, action) 
+            elif self.control_mode == 'pid2':
+                force = self.pidcontrol2(error, self.group_MIMO(self.PID_MIMO_BASELINE)) 
+
+            sol = integrate.odeint(self.pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
+                float(force), self.masscart, self.masspole, self.length, self.gravity, self.fric_coef, self.fric_rot
+            ))
+
+            self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
+            self.state.append(np.array(self.stepstate, dtype = np.float32))
+
+            terminated = bool(
+                sol[1][0] < -self.x_threshold
+                or sol[1][0] > self.x_threshold
+                or sol[1][2] < -self.theta_threshold_radians
+                or sol[1][2] > self.theta_threshold_radians
+            )
+
+            if terminated: 
+                print("RESTORING PROCESS UNSTABLE!")
+
+            if x_reached_setpoint and theta_reached_setpoint: 
+                print("SUCCESFULLY RESTORED INITIAL SETUP")
+                
+                break
+
+            if self.render_mode == "human":
+                self.render() 
+
+        return 
+
     def step_online(self, action):
         '''
         NOTE: iterreset() must be ran internally the very first time only for future training (real-like)
@@ -289,7 +350,8 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         '''
 
         # reset env 
-        self.iterreset(custom=np.array([0,0,0,0])) 
+        # self.iterreset(custom=np.array([0,0,0,0])) 
+        self.iterreset()
 
         # save current PID 
         self.PID_MIMO_last = self.PID_MIMO.copy()
@@ -313,7 +375,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                 # if too unstable, break immediately.
                 if lin_stability < self.lin_stability_threshold:
                     
-                    # print("TOO UNSTABLE!")
+                    print("TOO UNSTABLE!")
 
                     # re-set PID to previous PID value
                     self.PID_MIMO = self.PID_MIMO_last.copy()
@@ -323,6 +385,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             # record trajectory
             x, x_dot, theta, theta_dot = self.stepstate
             x_list.append(x); theta_list.append(theta); trajectory.append(self.stepstate)
+            self.x_trajectory.append(x); self.theta_trajectory.append(theta)
 
             # check whether x, theta is near setpoint
             if x_reached_setpoint is False and abs(x - self.desired_state[0]) < 0.05: x_reached_setpoint = True
@@ -331,20 +394,26 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             # if object's position gets out-of-bound, break immediately.
             if x_reached_setpoint and not self.x_lower_bound < x < self.x_upper_bound:
 
-                # print(f"{x:.3f} was out of bound (position)")
+                print(f"{x:.3f} was out of bound (position)")
 
                 # re-set PID to previous PID value
                 self.PID_MIMO = self.PID_MIMO_last.copy()
+
+                # restore original setup
+                self.restore_setup()
 
                 break
             
             # if object's angle gets out-of-bound, break immediately.
             if theta_reached_setpoint and not self.theta_lower_bound < theta < self.theta_upper_bound:
 
-                # print(f"{theta:.3f} was out of bound (angle).")
+                print(f"{theta:.3f} was out of bound (angle).")
 
                 # re-set PID to previous PID value
                 self.PID_MIMO = self.PID_MIMO_last.copy()
+
+                # restore original setup
+                self.restore_setup()
 
                 break
 
@@ -395,7 +464,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         # episode ends after 50 PID updates
         truncated = True if self.time >= 50 else False
-        self.time += 1
+        self.time += 1       
 
         return next_state, reward, False, truncated, {}
 
