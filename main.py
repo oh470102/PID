@@ -3,7 +3,7 @@ from timeit import *
 from user_env_gym import cartpolepid as cppid
 
 # create env
-env = cppid.CartPoleEnv(render_mode='human', control_mode='pid2')
+env = cppid.CartPoleEnv(render_mode='none', control_mode='pid2')
 
 # create agent
 agent = Agent(env=env)
