@@ -98,7 +98,9 @@ class Noisymodel(nn.Module):
         return q
     
     def reset_noise(self):
-        pass
+        self.noisy_layer1.reset_noise()
+        self.noisy_layer2.reset_noise()
+        self.noisy_layer3.reset_noise()
 
 class NoisyLinear(nn.Module):
     
@@ -122,7 +124,7 @@ class NoisyLinear(nn.Module):
 
     def forward(self, x):
         return F.linear(
-            x, self.weight_mu, self.weight_sigma * self.weight_epsilon,
+            x, self.weight_mu + self.weight_sigma * self.weight_epsilon,
             self.bias_mu + self.bias_sigma * self.bias_epsilon,
         )
 
