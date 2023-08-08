@@ -57,7 +57,7 @@ class Agent:
         self.action_map = [[a,b,c,d,e,f] for a in [1, -1, 0] for b in [1, -1, 0] for c in [1, -1, 0] for d in [1, -1, 0] for e in [1, -1, 0] for f in [1, -1, 0]]
 
         # Neural network stuff
-        self.actor = Noisymodel(self.state_dim, self.action_dim)
+        self.actor = NoisyDQNModel(self.state_dim, self.action_dim)
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=self.LEARNING_RATE)
         self.target_actor = copy.deepcopy(self.actor)
         self.target_actor.load_state_dict(self.actor.state_dict())
@@ -192,7 +192,6 @@ class Agent:
             print(f"Action: {self.action_map[action]}")
             print(f"reward: {reward}")
             print(f"next PID: {next_state}")
-
 
     def train(self, save: bool = False) -> np.ndarray:
 
