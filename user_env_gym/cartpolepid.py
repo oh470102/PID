@@ -1,16 +1,17 @@
 """
-Classic cart-pole system implemented by Rich Sutton et al.
-Copied from http://incompleteideas.net/sutton/book/code/pole.c
-permalink: https://perma.cc/C9ZM-652R
+The classic Cart-Pole environment, with slight tweaks.
+See comment under class definition to see major changes.
+
+Reference:
+    - ["Neuronlike Adaptive Elements That Can Solve Difficult Learning Control Problem"] (https://ieeexplore.ieee.org/document/6313077)
+    - code from: http://incompleteideas.net/sutton/book/code/pole.c
+    - permalink: https://perma.cc/C9ZM-652R
 """
+
 import math
 from typing import Optional, Union
-
 import numpy as np
-import time
 from scipy import integrate
-import matplotlib.pyplot as plt
-
 import gymnasium as gym
 from gymnasium import logger, spaces
 from gymnasium.envs.classic_control import utils
@@ -18,24 +19,17 @@ from gymnasium.error import DependencyNotInstalled
 import user_env_gym.controlutil as ctut
 
 class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
+
     """
-    ### Description
-
-    This environment corresponds to the version of the cart-pole problem described by Barto, Sutton, and Anderson in
-    ["Neuronlike Adaptive Elements That Can Solve Difficult Learning Control Problem"](https://ieeexplore.ieee.org/document/6313077).
-    A pole is attached by an un-actuated joint to a cart, which moves along a frictionless track.
-    The pendulum is placed upright on the cart and the goal is to balance the pole by applying forces
-     in the left and right direction on the cart.
-
     ### Action Space
 
-    The action is a `ndarray` with shape `(1,)` which can take values `{0, 1}` indicating the direction
-     of the fixed force the cart is pushed with.
+    The action is a `ndarray` with shape `(1,)` which can take values from the interval [-10, 10] which indicates the 
+    amount of force (N) to push the cart with.
 
-    | Num | Action                 |
-    |-----|------------------------|
-    | 0   | Push cart to the left  |
-    | 1   | Push cart to the right |
+    | Sign | Action (Force)         |
+    |------|------------------------|
+    | +    | Push cart to the right |
+    | -    | Push cart to the left  |
 
     **Note**: The velocity that is reduced or increased by the applied force is not fixed and it depends on the angle
      the pole is pointing. The center of gravity of the pole varies the amount of energy needed to move the cart underneath it
@@ -89,36 +83,27 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         "render_fps": 50,
     }
 
-    def __init__(self, render_mode: Optional[str] = None, control_mode: Optional[str] = None):
+    def __init__(self, render_mode: Optional[str] = None, control_mode: Optional[str] = None) -> None:
+
+        # Physical constants
         self.gravity = 9.8
         self.masscart = 1.0
         self.masspole = 0.1
         self.total_mass = self.masspole + self.masscart
-        self.length = 0.5  # actually half the pole's length
+        self.length = 0.5  
         self.polemass_length = self.masspole * self.length
-        self.fric_coef = 0.0  # friction between floor and cart
-        self.fric_rot = 0.0  # friction between cart and pole
-        self.force_mag = 10.0
-        self.tau = 0.02  # seconds between state updates
+        self.fric_coef = 0.0                # friction between floor and cart
+        self.fric_rot = 0.0                 # friction between cart and pole
+        self.force_mag = 10.0               # boundary for force magnitude
+        self.tau = 0.02                     # seconds between state updates
         self.kinematics_integrator = "euler"
 
-        # Angle at which to fail the episode
-        self.theta_threshold_radians = 45 * 2 * math.pi / 360
-        self.x_threshold = 2.4
-
-        # temporary variables in order to implement digital pid (using velocity form)
-        self.prev_mv = 0
-        self.prev_err = 0
-        self.dprev_err = 0
-
-        # how long one response takes
-        self.resp_time = 100
-
-        # start matlab engine
+        # MATLAB engine (for stability calculation)
         self.eng = ctut.start_matengine()
 
-        # Angle limit set to 2 * theta_threshold_radians so failing observation
-        # is still within bounds.
+        # Angle, position thresholds
+        self.theta_threshold_radians = 45 * math.pi / 180
+        self.x_threshold = 2.4
         high = np.array(
             [
                 self.x_threshold * 2,
@@ -128,12 +113,9 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             ],
             dtype=np.float32,
         )
-
         self.observation_space = spaces.Box(-high, high, dtype=np.float32)
 
-        self.render_mode = render_mode
-        self.control_mode = control_mode
-
+        # Pygame stuff
         self.screen_width = 600
         self.screen_height = 400
         self.screen = None
@@ -141,9 +123,16 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.isopen = True
         self.stepstate = None
         self.state = []
-
+        self.render_mode = render_mode
         self.steps_beyond_terminated = None
 
+        # Digital PID (velocity form) variables
+        self.prev_mv = 0
+        self.prev_err = 0
+        self.dprev_err = 0
+        self.control_mode = control_mode   
+
+        # More PID stuff (for reward calculation, saving best-performers.)
         self.PID = np.zeros(3)
         self.PID_MIMO = np.zeros(6)
         self.PID_MIMO_last = np.zeros(6)
@@ -152,13 +141,17 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         self.best_stability = 0
         self.best_PID = None
-        self.best_ISE = 737              # baseline ISE is 737.
-        self.stability_threshold = 0.4
-        self.lin_stability_threshold = 0 # fix to np.min(1, -ctut.lin_stability_MIMO(self.PID_MIMO_BASELINE)/2) later.
+        self.best_ISE = None         
+        self.lin_stability_threshold = 0.4 
 
-        self.x_trajectory = []
-        self.theta_trajectory = []
+        self.prev_stability = None
+        self.desired_state = np.array([1,0,0,0])
 
+        self.x_upper_bound, self.x_lower_bound, self.theta_upper_bound, self.theta_lower_bound, self.prev_ISE = self.get_bound_by_rollout()
+        self.best_ISE = self.prev_ISE
+        print(self.x_upper_bound, self.x_lower_bound, self.theta_upper_bound, self.theta_lower_bound, self.prev_ISE)
+
+        # Matrices for stability calculation
         self.A = [[0.0, 0.0, 1.0, 0.0],
                   [0.0, 0.0, 0.0, 1.0],
                   [0.0, 0.7945946, 0.0, 0.0],
@@ -187,12 +180,6 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
               [0, 1, 0, 0],
               [0, 0, 1, 0],
               [0, 0, 0, 1]]
-
-        self.prev_stability = None
-        self.desired_state = np.array([1,0,0,0])
-
-        self.x_upper_bound, self.x_lower_bound, self.theta_upper_bound, self.theta_lower_bound, self.prev_ISE = self.get_bound_by_rollout()
-        print(self.x_upper_bound, self.x_lower_bound, self.theta_upper_bound, self.theta_lower_bound, self.prev_ISE)
 
     def get_bound_by_rollout(self, generosity=0.35):
         '''
