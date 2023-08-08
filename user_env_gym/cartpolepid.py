@@ -122,7 +122,6 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.clock = None
         self.isopen = True
         self.stepstate = None
-        self.state = []
         self.render_mode = render_mode
         self.steps_beyond_terminated = None
 
@@ -131,25 +130,27 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.prev_err = 0
         self.dprev_err = 0
         self.control_mode = control_mode   
-
-        # More PID stuff (for reward calculation, saving best-performers.)
-        self.PID = np.zeros(3)
-        self.PID_MIMO = np.zeros(6)
-        self.PID_MIMO_last = np.zeros(6)
-        self.PID_MIMO_BASELINE = np.array([-46, 130, -25, 126, -20,  16])
-        self.time = 0
-
-        self.best_stability = 0
-        self.best_PID = None
-        self.best_ISE = None         
-        self.lin_stability_threshold = 0.4 
-
-        self.prev_stability = None
         self.desired_state = np.array([1,0,0,0])
 
+        # More PID stuff (for reward calculation)
+        self.PID = None
+        self.PID_last = None
+        self.PID_SISO_BASELINE = np.array([72, 136, 10])
+        self.PID_MIMO_BASELINE = np.array([-46, 130, -25, 126, -20,  16])
+
+        # More PID stuff 2 (for saving best-performers)
+        self.best_stability = None
+        self.prev_stability = None
+        self.best_PID = None
+        self.best_ISE = None         
+
+        # for stability-wise guarantees
+        self.lin_stability_threshold = 0.4 
         self.x_upper_bound, self.x_lower_bound, self.theta_upper_bound, self.theta_lower_bound, self.prev_ISE = self.get_bound_by_rollout()
         self.best_ISE = self.prev_ISE
-        print(self.x_upper_bound, self.x_lower_bound, self.theta_upper_bound, self.theta_lower_bound, self.prev_ISE)
+
+        # Miscellaneous
+        self.time = 0
 
         # Matrices for stability calculation
         self.A = [[0.0, 0.0, 1.0, 0.0],
@@ -181,53 +182,55 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
               [0, 0, 1, 0],
               [0, 0, 0, 1]]
 
-    def get_bound_by_rollout(self, generosity=0.35):
+    def get_bound_by_rollout(self, generosity: float = 0.35) -> tuple:
+
         '''
-        calculates upper and lower bounds of state variables through a rollout of baseline PID
-        larger generosity means the bound gets more generous (greater bound)
-        also returns baseline ISE for future reward calculation
+        calculates upper and lower bounds of state variables (position, angle)
+        through a rollout (simulation) of baseline PID
+
+            - larger generosity means larger bound
+            - also returns ISE of baseline PID for future reward calculation
         '''
 
+        # reset env (may change to random)
         self.iterreset(custom=np.array([0,0,0,0]))
+
+        # setup variables
         rollout_traj_x, rollout_traj_theta, full_traj = [], [], []
-        action = self.PID_MIMO_BASELINE
-        reached_setpoint_at = [None, None] # (x, theta)
+        reached_setpoint_at = [None, None]
  
+        # use baseline PID
+        PID = self.PID_MIMO_BASELINE if self.control_mode == 'pid2' else self.PID_SISO_BASELINE
+
+        # env loop
+        # NOTE: we know baseline PID will not fail, so environment termination condition was not considered.
         for i in range(500):
             
+            # record current state variables (x, v, theta, w)
             x, x_dot, theta, theta_dot = self.stepstate
             rollout_traj_x.append(x); rollout_traj_theta.append(theta); full_traj.append(np.array([x, theta]))
             
+            # calculate error, force
             error = self.desired_state - self.stepstate
+            force = self.pidcontrol(error, use_diff_PID=PID)
+
+            # record the instance at which setpoint was reached
             if reached_setpoint_at[0] is not None and abs(error[0]) < 0.05: reached_setpoint_at[0] = i
             if reached_setpoint_at[1] is not None and abs(error[2]) < 0.05: reached_setpoint_at[1] = i
 
-            if self.control_mode == 'pid1':
-                force = self.pidcontrol1(error, action) 
-            elif self.control_mode == 'pid2':
-                force = self.pidcontrol2(error, self.group_MIMO(self.PID_MIMO_BASELINE)) 
-
+            # calculate new state variables 
             sol = integrate.odeint(self.pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
                 float(force), self.masscart, self.masspole, self.length, self.gravity, self.fric_coef, self.fric_rot
             ))
-
             self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
-            self.state.append(np.array(self.stepstate, dtype = np.float32))
-
-            terminated = bool(
-                sol[1][0] < -self.x_threshold
-                or sol[1][0] > self.x_threshold
-                or sol[1][2] < -self.theta_threshold_radians
-                or sol[1][2] > self.theta_threshold_radians
-            )
-
-            if terminated: break     
         
+        # calculate upper, lower bounds for position
         rollout_traj_x = np.array(rollout_traj_x[reached_setpoint_at[0]: ])
         max_x = np.max(rollout_traj_x)
         x_upper_bound = max_x + generosity * (max_x - self.desired_state[0])
         x_lower_bound = self.desired_state[0] - (x_upper_bound - self.desired_state[0])
 
+        # calculate upper, lower bounds for angle
         rollout_traj_theta = np.array(rollout_traj_theta[reached_setpoint_at[1]: ])
         max_theta = np.max(rollout_traj_theta)
         theta_upper_bound = max_theta + generosity * (max_theta - self.desired_state[2])
@@ -235,20 +238,25 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         return x_upper_bound, x_lower_bound, theta_upper_bound, theta_lower_bound, ctut.calISE(full_traj, np.array([self.desired_state[0], self.desired_state[2]]))
 
-    def get_curr_stability(self, MIMO=False):
+    def get_curr_stability(self) -> float:
+
         '''
-        returns stability using the current PID (SISO or MIMO, stored as class instance var.)
+        returns the current PID coefficients' stability
+            - the sign is reversed, so the more positive, the more stable
+            - NOTE: stability calculation depends on the control_mode
         '''
 
+        MIMO = True if self.control_mode == 'pid2' else False
+
         if not MIMO:
-            P, I, D = tuple(map(int, list(self.PID)))
+            P, I, D = tuple(map(float, list(self.PID)))
             stability = ctut.lin_stability_SISO(self.eng, P, I, D, self.A, self.B, self.C, self.D, self.E)
 
             return -stability
         
         if MIMO:
-            P1, P2, I1, I2, D1, D2 = tuple(map(int, list(self.PID_MIMO)))
-            stability = ctut.lin_stability_MIMO(self.eng, [P1, P2],[I1, I2],[D1,D2], self.Am, self.Bm, self.Cm, self.Dm, self.Em)
+            P1, P2, I1, I2, D1, D2 = tuple(map(float, list(self.PID)))
+            stability = ctut.lin_stability_MIMO(self.eng, [P1, P2], [I1, I2], [D1,D2], self.Am, self.Bm, self.Cm, self.Dm, self.Em)
 
             return -stability
 
@@ -256,7 +264,12 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
     def sigmoid(x):
         return 1.0 / (1.0 + np.exp(-x))
 
-    def pend(self, y, t, F, m_c, m_p, l_p, g, k, b):
+    def pend(self, y, t, F, m_c, m_p, l_p, g, k, b) -> list:
+
+        '''
+        real-dynamics calculation for cartpole
+        '''
+
         x, x_dot, th, th_dot = y
         sintheta = np.sin(th)
         costheta = np.cos(th)
@@ -271,7 +284,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         ytdt = [x_dot, xacc, th_dot, thetaacc]
         return ytdt
     
-    def restore_setup(self):
+    def restore_setup(self) -> None:
 
         '''
         Restores the original cart-pole setup 
@@ -279,37 +292,44 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         Baseline PID is used for this process.
         '''
 
+        # desired_state is now the initial condition (around [0,0,0,0])
         desired_state = np.array([0,0,0,0])
-        action = None
+
+        # record initial condition for logging purposes
         initial_condition = self.stepstate.copy()
 
-        self.prev_mv=0
+        # reset PID variables 
+        # NOTE: do NOT call iterreset() since that automatically bring the cart to the initial condition
+        self.prev_mv = 0
         self.prev_err = 0
         self.dprev_err = 0
 
+        # use baseline PID
+        PID = self.PID_MIMO_BASELINE if self.control_mode == 'pid2' else self.PID_SISO_BASELINE
+
         # print("Restoration initiated...", end='')
 
+        # loop until initial condition restored
         while True:
 
+            # retrieve current env state variables
             x, x_dot, theta, theta_dot = tuple(self.stepstate)
-            error = desired_state - self.stepstate
 
+            # calculate error, force
+            error = desired_state - self.stepstate
+            force = self.pidcontrol(error, use_diff_PID=PID)
+
+            # break if error is sufficiently small for both position & angle (initial state is restored
             if abs(error[0]) < 0.025 and abs(error[2]) < 0.025: 
-                # print("succeeded!")
-                # print(sols)
                 break
 
-            if self.control_mode == 'pid1':
-                force = self.pidcontrol1(error, action) 
-            elif self.control_mode == 'pid2':
-                force = self.pidcontrol2(error, self.group_MIMO(self.PID_MIMO_BASELINE)) 
-
+            # otherwise, calculate new env stepstates
             sol = integrate.odeint(self.pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
                 float(force), self.masscart, self.masspole, self.length, self.gravity, self.fric_coef, self.fric_rot
             ))
-
             self.stepstate = np.array([sol[1][0], sol[1][1], sol[1][2], sol[1][3]])
 
+            # check if env terminated
             terminated = bool(
                 sol[1][0] < -self.x_threshold
                 or sol[1][0] > self.x_threshold
@@ -317,30 +337,44 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                 or sol[1][2] > self.theta_threshold_radians
             )
 
+            # this means the restoration process failed
             if terminated: 
-                print("FAILED!")
-                print(tuple(initial_condition))
-                # raise Exception
+                print("FATAL: Restoration process failed. ")
+
+                # TODO: implement what to do if restoration fails
+                break
 
             if self.render_mode == "human":
                 self.render() 
 
-    def step_online(self, action):
+    def step_online(self, action: np.ndarray) -> tuple:
+
         '''
-        NOTE: iterreset() must be ran internally the very first time only for future training (real-like)
-        assumes MIMO by default
+        For online-tuning with real dynamics.
+            - follows a very similar structure to gym's step() function
+
+            - receives action and returns (s', r, terminated, truncated, info)
+                - next_state (s') is simply current_state + action
+                - reward is (previous_ISE - current_ISE) / 10 (thus, the improvement in ISE scaled by 1/10).
+                - terminated is always False
+                - truncated is True after 50 time-steps
+                - info is a list containing position, angle trajectory
+
+            - action must be a np.ndarray of appropriate size (agreeing with control_mode)
         '''
+
+        # action size must agree with control mode
+        assert action.size == self.PID.size, f'action size ({action.size}) does not agree with PID size ({self.PID.size})'
 
         # reset env 
         self.iterreset(custom=np.array([0,0,0,0])) 
-        # self.iterreset()
 
         # save current PID 
-        self.PID_MIMO_last = self.PID_MIMO.copy()
+        self.PID_last = self.PID.copy()
 
         # update & clip PID by action
-        self.PID_MIMO += action
-        self.PID_MIMO = self.clip_PID_MIMO(self.PID_MIMO)
+        self.PID += action
+        self.PID = self.clip_PID()
 
         # record x, theta trajectory to keep track of controller stability
         x_reached_setpoint, theta_reached_setpoint = False, False
@@ -351,16 +385,13 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             
             # calculate linear stability, just once prior to simulation
             if i == 0:
-                lin_stability = self.get_curr_stability(MIMO=True)
-                # print(f"stability: {lin_stability}")
+                lin_stability = self.get_curr_stability()
 
                 # if too unstable, break immediately.
                 if lin_stability < self.lin_stability_threshold:
-                    
-                    # print("TOO UNSTABLE!")
-
+                
                     # re-set PID to previous PID value
-                    self.PID_MIMO = self.PID_MIMO_last.copy()
+                    self.PID = self.PID_last.copy()
 
                     break
 
@@ -372,46 +403,43 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             if x_reached_setpoint is False and abs(x - self.desired_state[0]) < 0.05: x_reached_setpoint = True
             if theta_reached_setpoint is False and abs(theta - self.desired_state[2]) < 0.05: theta_reached_setpoint = True
 
-            # if object's position gets out-of-bound, break immediately.
+            # if object reached setpoint once and its position gets out-of-bound, break immediately.
             if x_reached_setpoint and not self.x_lower_bound < x < self.x_upper_bound:
 
                 # print(f"{x:.3f} was out of bound (position)")
 
                 # re-set PID to previous PID value
-                self.PID_MIMO = self.PID_MIMO_last.copy()
+                self.PID = self.PID_last.copy()
 
                 # restore original setup
                 self.restore_setup()
 
                 break
             
-            # if object's angle gets out-of-bound, break immediately.
+            # same for the object's angle
             if theta_reached_setpoint and not self.theta_lower_bound < theta < self.theta_upper_bound:
 
                 # print(f"{theta:.3f} was out of bound (angle).")
 
                 # re-set PID to previous PID value
-                self.PID_MIMO = self.PID_MIMO_last.copy()
+                self.PID = self.PID_last.copy()
 
                 # restore original setup
                 self.restore_setup()
 
                 break
 
+            # calculate error, force
             error = self.desired_state - self.stepstate
+            force = self.pidcontrol(error)
 
-            if self.control_mode == 'pid1':
-                force = self.pidcontrol1(error, action) 
-            elif self.control_mode == 'pid2':
-                force = self.pidcontrol2(error, self.group_MIMO(self.PID_MIMO)) 
-
+            # thus calculate new stepstate
             sol = integrate.odeint(self.pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
                 float(force), self.masscart, self.masspole, self.length, self.gravity, self.fric_coef, self.fric_rot
             ))
-
             self.stepstate = np.array([sol[1][0], sol[1][1], sol[1][2], sol[1][3]])
-            self.state.append(np.array(self.stepstate, dtype = np.float32))
 
+            # check if cart-pole environment terminated (not the episode!)
             terminated = bool(
                 sol[1][0] < -self.x_threshold
                 or sol[1][0] > self.x_threshold
@@ -425,10 +453,11 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                 self.render()        
 
         # set next_state as updated PID 
-        next_state = self.PID_MIMO.copy()
+        next_state = self.PID.copy()
 
         # controller was too unstable, and action was not [0] x 6
-        if list(self.PID_MIMO_last) == list(self.PID_MIMO) and list(action) != list(np.zeros(6, dtype=np.int64)):
+        # TODO: fix the second condition...action is not necessarily int anymore
+        if list(self.PID_last) == list(self.PID) and list(action) != list(np.zeros(6, dtype=np.int64)):
             reward = -1
         
         # controller was stable, then calculate ISE improvements
@@ -438,7 +467,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             # print if new best ISE is found 
             if curr_ISE < self.best_ISE: 
                 self.best_ISE = curr_ISE.copy() 
-                print(f"best ISE: {self.best_ISE:.2f} by {self.PID_MIMO}")
+                print(f"best ISE: {self.best_ISE:.2f} by {self.PID}")
             
             reward = (self.prev_ISE - curr_ISE) / 10
             self.prev_ISE = curr_ISE
@@ -447,35 +476,68 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         truncated = True if self.time >= 50 else False
         self.time += 1       
 
-        return next_state, reward, False, truncated, {}
+        # terminated is always False
+        return next_state, reward, False, truncated, [x_list, theta_list]  
+    
+    def step_offline(self, action: np.ndarray) -> tuple:
 
-    def step(self, action):
+        '''
+        For offline-tuning with linearized dynamics.
+            - follows a very similar structure to gym's step() function
 
+            - receives action and returns (s', r, terminated, truncated, info)
+                - next_state (s') is simply current_state + action
+                - reward is 5 * (curr_stability - prev_stability) (thus, the improvement in ISE scaled by 5).
+                - terminated is always False
+                - truncated is True after 50 time-steps
+                - info is a list containing position, angle trajectory
+
+            - action must be a np.ndarray of appropriate size (agreeing with control_mode)
+        '''
+
+        # action size must agree with control mode
+        assert action.size == self.PID.size, f'action size ({action.size}) does not agree with PID size ({self.PID.size})'
+
+        # reset env 
         self.iterreset()
 
-        desired_state = np.array([1, 0, 0, 0])
-        reward = 0.0
-        x_list, theta_list = [], []
+        # calculate current stability
+        self.prev_stability = self.get_curr_stability()
 
+        # update and clip PID
+        self.PID += action
+        self.PID = self.clip_PID()
+
+        # run simulation, record trajectory
+        x_list, theta_list, trajectory = [], [], []
         for i in range(1000):
-            
+
+            # get new env stepstate
             x, x_dot, theta, theta_dot = self.stepstate
-            x_list.append(x); theta_list.append(theta)
-            # suppose that reference signal is 0 degree
+            x_list.append(x); theta_list.append(theta); trajectory.append(trajectory)
 
-            error = desired_state - self.stepstate
+            # calculate error, force
+            error = self.desired_state - self.stepstate
+            force = self.pidcontrol(error)
 
-            if self.control_mode == 'pid1':
-                force = self.pidcontrol1(error, action) 
-            elif self.control_mode == 'pid2':
-                force = self.pidcontrol2(error, action) #+ 3 * np.random.randn(1)[0]
+            def pend(y, t, F, m_c, m_p, l_p, g):
+                '''
+                linearized-dynamics calculation for cartpole
+                '''
+                x, x_dot, th, th_dot = y
+                
+                xacc = ((3 * g * m_p)/(4 - 3 * m_p)) * th + (4 / ((m_p + m_c) * (4 - 3 * m_p))) * F
 
-            sol = integrate.odeint(self.pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
-                float(force), self.masscart, self.masspole, self.length, self.gravity, self.fric_coef, self.fric_rot
+                thetaacc = ((3 * g * (m_p + m_c)) / (l_p * (4 - 3 * m_p))) * th + (3 / (l_p * (4 - 3 * m_p))) * F
+
+                ytdt = [x_dot, xacc, th_dot, thetaacc]
+                return ytdt
+
+            sol = integrate.odeint(pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
+                float(force), self.masscart, self.masspole, self.length, self.gravity
             ))
 
             self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
-            self.state.append(np.array(self.stepstate, dtype = np.float32))
 
             terminated = bool(
                 sol[1][0] < -self.x_threshold
@@ -483,428 +545,178 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
                 or sol[1][2] < -self.theta_threshold_radians
                 or sol[1][2] > self.theta_threshold_radians
             )
+
+            if self.render_mode == "human":
+                self.render()
 
             if terminated: break
-            else: reward += 1
-
-            if self.render_mode == "human":
-                self.render()        
         
-        return reward, x_list, theta_list
-    
-    def coefstep(self, action):
-        # err_msg = f"{action!r} ({type(action)}) invalid"
-        # assert -self.force_mag <= action and action <= self.force_mag, err_msg
-        #assert self.stepstate is not None, "Call reset before using step method."
-
-        score = 8.0
-
-        for i in range(8):
-            self.coefreset(i+1)
-
-            desired_state = np.array([0, 0, 0, 0])
-
-            for i in range(int(self.resp_time / self.tau)):
-                
-                x, x_dot, theta, theta_dot = self.stepstate
-                # suppose that reference signal is 0 degree
-
-                error = desired_state - self.stepstate
-
-                if self.control_mode == 'pid1':
-                    force = self.pidcontrol1(error, action)
-                elif self.control_mode == 'pid2':
-                    force = self.pidcontrol2(error, action)
-
-                def pend(y, t, F, m_c, m_p, l_p, g, k, b):
-                    x, x_dot, th, th_dot = y
-                    sintheta = np.sin(th)
-                    costheta = np.cos(th)
-                    temp = (
-                        F + m_p * l_p * th_dot**2 * sintheta
-                    ) / (m_p + m_c)
-                    thetaacc = (g * sintheta - costheta * temp) / (
-                        l_p * (4.0 / 3.0 - m_p * costheta**2 / (m_p + m_c))
-                    )
-                    xacc = temp - m_p * l_p * thetaacc * costheta / (m_p + m_c)
-
-                    ytdt = [x_dot, xacc, th_dot, thetaacc]
-                    return ytdt
-                
-
-                sol = integrate.odeint(pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
-                    float(force), self.masscart, self.masspole, self.length, self.gravity
-                ))
-
-                self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
-                self.state.append(np.array(self.stepstate, dtype = np.float32))
-
-                terminated = bool(
-                    sol[1][0] < -self.x_threshold
-                    or sol[1][0] > self.x_threshold
-                    or sol[1][2] < -self.theta_threshold_radians
-                    or sol[1][2] > self.theta_threshold_radians
-                )
-
-                if self.render_mode == "human":
-                    self.render()
-
-                if terminated == True:
-                    score -= 1.0
-                    break
-
-        
-        
-        return score, {}
-    
-    def linstep(self, action):
-        '''
-        action = [dP, dI, dD] <numpy array>
-        '''
-        self.prev_stability = self.get_curr_stability()
-        self.PID += action
-        self.PID = np.clip(self.PID, 10, 150)
-        self.time += 1
-
-        desired_state = np.array([0, 0, 0, 0])
-        score = 0.0
-
-        self.iterreset()
-        for i in range(500):
-
-            x, x_dot, theta, theta_dot = self.stepstate
-            # suppose that reference signal is 0 degree
-
-            error = desired_state - self.stepstate
-
-            if self.control_mode == 'pid1':
-                force = self.pidcontrol1(error, self.PID)
-            elif self.control_mode == 'pid2':
-                force = self.pidcontrol2(error, self.PID)
-
-            def pend(y, t, F, m_c, m_p, l_p, g):
-                x, x_dot, th, th_dot = y
-                
-                xacc = ((3 * g * m_p)/(4 - 3 * m_p)) * th + (4 / ((m_p + m_c) * (4 - 3 * m_p))) * F
-
-                thetaacc = ((3 * g * (m_p + m_c)) / (l_p * (4 - 3 * m_p))) * th + (3 / (l_p * (4 - 3 * m_p))) * F
-
-                ytdt = [x_dot, xacc, th_dot, thetaacc]
-                return ytdt
-
-            sol = integrate.odeint(pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
-                float(force), self.masscart, self.masspole, self.length, self.gravity
-            ))
-
-            self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
-            self.state.append(np.array(self.stepstate, dtype = np.float32))
-
-            terminated = bool(
-                sol[1][0] < -self.x_threshold
-                or sol[1][0] > self.x_threshold
-                or sol[1][2] < -self.theta_threshold_radians
-                or sol[1][2] > self.theta_threshold_radians
-            )
-
-            if self.render_mode == "human":
-                self.render()
-
-            if terminated:
-                if self.steps_beyond_terminated is None:
-                    self.steps_beyond_terminated = 0
-                    score += 0.0
-                else:
-                    if self.steps_beyond_terminated == 0:
-                        logger.warn(
-                            "You are calling 'step()' even though this "
-                            "environment has already returned terminated = True. You "
-                            "should always call 'reset()' once you receive 'terminated = "
-                            "True' -- any further steps are undefined behavior."
-                        )
-                    self.steps_beyond_terminated += 1
-                    score += 0.0
-
-                break
-            else:
-                score += 1.0
-        
+        # calculate new stability and reward
         new_stability = self.get_curr_stability()
-        reward = 50 * (new_stability - self.prev_stability) 
-        self.prev_stability = new_stability
-
-        truncated = True if self.time >= 100 else False 
-
-        return self.PID, reward, False, truncated, {}
-    
-    def linstep_MIMO(self, action):
-
-        '''
-        action = [dP1, dP2, dI1, dI2, dD1, dD2] <numpy array>
-        '''
-        self.prev_stability = self.get_curr_stability(MIMO=True)
-        self.PID_MIMO += action
-        self.PID_MIMO = self.clip_PID_MIMO(self.PID_MIMO)
-        self.time += 1
-
-        desired_state = np.array([1, 0, 0, 0])
-        score = 0.0
-
-        #self.iterreset()
-
-        #''' NOTE: temporarily commented to increase training speed.
-        x_list, theta_list = [], []
-        for i in range(1000):
-
-            x, x_dot, theta, theta_dot = self.stepstate
-            x_list.append(x); theta_list.append(theta)
-            # suppose that reference signal is 0 degree
-
-            error = desired_state - self.stepstate
-
-            if self.control_mode == 'pid1':
-                force = self.pidcontrol1(error, self.PID)
-            elif self.control_mode == 'pid2':
-                force = self.pidcontrol2(error, self.group_MIMO(self.PID_MIMO))
-
-            def pend(y, t, F, m_c, m_p, l_p, g):
-                x, x_dot, th, th_dot = y
-                
-                xacc = ((3 * g * m_p)/(4 - 3 * m_p)) * th + (4 / ((m_p + m_c) * (4 - 3 * m_p))) * F
-
-                thetaacc = ((3 * g * (m_p + m_c)) / (l_p * (4 - 3 * m_p))) * th + (3 / (l_p * (4 - 3 * m_p))) * F
-
-                ytdt = [x_dot, xacc, th_dot, thetaacc]
-                return ytdt
-
-            sol = integrate.odeint(pend, [x, x_dot, theta, theta_dot], [0, self.tau], args = (
-                float(force), self.masscart, self.masspole, self.length, self.gravity
-            ))
-
-            self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
-            self.state.append(np.array(self.stepstate, dtype = np.float32))
-
-            terminated = bool(
-                sol[1][0] < -self.x_threshold
-                or sol[1][0] > self.x_threshold
-                or sol[1][2] < -self.theta_threshold_radians
-                or sol[1][2] > self.theta_threshold_radians
-            )
-
-            if self.render_mode == "human":
-                self.render()
-
-            if terminated:
-                if self.steps_beyond_terminated is None:
-                    self.steps_beyond_terminated = 0
-                    score += 0.0
-                else:
-                    if self.steps_beyond_terminated == 0:
-                        logger.warn(
-                            "You are calling 'step()' even though this "
-                            "environment has already returned terminated = True. You "
-                            "should always call 'reset()' once you receive 'terminated = "
-                            "True' -- any further steps are undefined behavior."
-                        )
-                    self.steps_beyond_terminated += 1
-                    score += 0.0
-
-                break
-            else:
-                score += 1.0
-        #'''
-        
-        new_stability = self.get_curr_stability(MIMO=True)
         reward = 5 * (new_stability - self.prev_stability) 
         self.prev_stability = new_stability
 
         # save good stability & PIDs
         if self.prev_stability > self.best_stability:
             self.best_stability = self.prev_stability
-            self.best_PID = self.PID_MIMO
+            self.best_PID = self.PID.copy()
 
             # print current best PID
             print(f"best stability: {self.best_stability:.2f} by {self.best_PID}")
 
-        truncated = True if self.time >= 75 else False 
+        truncated = True if self.time >= 50 else False 
+        self.time += 1
 
-        return self.PID_MIMO, reward, False, truncated, [x_list, theta_list]
-    
-    def pidcontrol1(self, error, action):
-        # action should be [K_p, K_i, K_d]
-        error = error[2]
-        mv = self.prev_mv + action[0] * (error - self.prev_err) + self.tau * action[1] * error + action[2] * (error - 2*self.prev_err + self.dprev_err) / self.tau
+        return self.PID, reward, False, truncated, [x_list, theta_list]
 
-        if mv > self.force_mag:
-            mv = self.force_mag
+    def pidcontrol(self, error: np.ndarray, use_diff_PID: np.ndarray = None) -> float:
+
+        '''
+        Calculates force from the error array using the PID controller. 
+        error should be a np.ndarray of shape (4, ) calculated by (SP - stepstate).
+
+            - set use_diff_PID to a custom PID vector if you want to temporarily use one.
+
+        NOTE: The calculation process is dependent on control_mode (SISO or MIMO).
+
+            if SISO:
+            - PID should take the form of [K_p, K_i, K_d] <np.ndarray>
+            - only the angle error term is taken into account
+
+            if MIMO:
+            - PID should take the form of [K_p_c, K_p_th, K_i_c, K_i_th, K_d_c, K_d_th] <np.ndarray>
+            - both the angle and position error terms are considered.
+
+        '''
+
+        # use a custom PID if use_diff_PID is not None
+        PID = self.PID if use_diff_PID is None else use_diff_PID
+
+
+        # SISO
+        if self.control_mode == 'pid1':
+            error = error[2]
+            mv = self.prev_mv + PID[0] * (error - self.prev_err) + self.tau * PID[1] * error + PID[2] * (error - 2*self.prev_err + self.dprev_err) / self.tau
+
+        # MIMO
+        elif self.control_mode == 'pid2':
+
+            error = [error[0], error[2]]
         
-        if mv < -self.force_mag:
-            mv = -self.force_mag
+            if self.prev_err == 0:
+                self.prev_err = [0, 0]
+                self.dprev_err = [0, 0]
 
+                        
+            mv = self.prev_mv + (np.dot(np.array([PID[0], PID[1]]), np.array(error) - np.array(self.prev_err)) 
+                             + self.tau * np.dot(np.array([PID[2], PID[3]]), np.array(error)) 
+                             + np.dot(np.array([[PID[4], PID[5]]]), np.array(error) - 2*np.array(self.prev_err) + np.array(self.dprev_err)) / self.tau)
+
+
+        # clip force
+        mv = np.clip(mv, -self.force_mag, self.force_mag)
+
+        # update PID variables
         self.prev_mv = mv
         self.dprev_err = self.prev_err
         self.prev_err = error
         
         return mv
-    
-    def pidcontrol2(self, error, action):
-        # action should be [[K_p_c, K_p_th], [K_i_c, K_i_th], [K_d_c, K_d_th]]
-        error = [error[0], error[2]]
-        
-        if self.prev_err == 0:
-            self.prev_err = [0, 0]
-            self.dprev_err = [0, 0]
 
+    def clip_PID(self) -> np.ndarray:
 
-       # print(error, action[0])
-        
-        mv = self.prev_mv + (np.dot(np.array(action[0]), np.array(error) - np.array(self.prev_err)) 
-                             + self.tau * np.dot(np.array(action[1]), np.array(error)) 
-                             + np.dot(np.array(action[2]), np.array(error) - 2*np.array(self.prev_err) + np.array(self.dprev_err)) / self.tau)
-
-        if mv > self.force_mag:
-            mv = self.force_mag
-        
-        if mv < -self.force_mag:
-            mv = -self.force_mag
-
-        self.prev_mv = mv
-        self.dprev_err = self.prev_err
-        self.prev_err = error
-
-        return mv
-
-    def combine_MIMO(self, pos_PID, angle_PID):
         '''
-        transforms [P1, I1, D1] & [P2, I2, D2] to [P1, P2, I1, I2, D1, D2] as <numpy.array>
-        '''
-        combined_PID = np.zeros(6)
-
-        for i in range(0, 6, 2):
-            combined_PID[i] = pos_PID[i//2]
-            combined_PID[i+1] = angle_PID[i//2] 
-
-        return combined_PID
-
-    def divide_MIMO(self, combined_PID):
-        '''
-        transforms [P1, P2, I1, I2, D1, D2] to [P1, I1, D1] & [P2, I2, D2]
-        '''
-        
-        pos_PID, angle_PID = np.zeros(3), np.zeros(3)
-
-        for i in range(0, 6):
-            if i % 2 == 0:
-                pos_PID[i//2] = combined_PID[i]
-            else:
-                angle_PID[i//2] = combined_PID[i]
-
-        return pos_PID, angle_PID
-    
-    def group_MIMO(self, combined_PID):
-        '''
-        transforms [P1, P2, I1, I2, D1, D2] to [[P1, P2], [I1, I2], [D1, D2]]
-        '''
-        
-        ret = []
-
-        for i in range(0, 6, 2):
-            ret.append([combined_PID[i], combined_PID[i+1]])
-
-        return np.array(ret)
-
-    def get_random_MIMO(self):
-        '''
-        returns randomly initialized np.array([p1, p2, i1, i2, d1, d2])
-        '''
-        
-        position_PID = np.random.randint(low=5, high=150, size=3) * -1
-        angle_PID = np.random.randint(low=5, high=150, size=3) 
-
-        return self.combine_MIMO(position_PID, angle_PID)
-
-    def clip_PID_MIMO(self, PID_MIMO):
-        '''
-        clips [P1, P2, I1, I2, D1, D2] within (10, 150) 
-        sign is considered.
+        - clips the magnitude of self.PID coefficients within (5, 150) and returns its copy
+        - sign is preserved.
         '''
 
-        P1, P2, I1, I2, D1, D2 = tuple(map(int, list(PID_MIMO)))
-        
-        clipped_pos_PID = np.clip(np.array([P1, I1, D1]), -150, -5)
-        clipped_angle_PID = np.clip(np.array([P2, I2, D2]), 5, 150)
+        # save the coefficients' signs
+        signs = np.sign(self.PID)
 
-        return self.combine_MIMO(clipped_pos_PID, clipped_angle_PID)
+        # take absolute value and then clip
+        self.PID = np.clip(np.abs(self.PID), 5, 150)
 
-    def reset(
-        self,
-        *,
-        seed: Optional[int] = None,
-        options: Optional[dict] = None,
-        custom_PID = None,
-        custom_PID_MIMO = None,
-        MIMO=False,
-        online=False
-    ):
-        super().reset(seed=seed)
-        # Note that if you use custom reset bounds, it may lead to out-of-bound
-        # state/observations.
+        # give the signs back
+        self.PID = signs * self.PID
 
-        if online is False:
-            self.PID = np.random.randint(low=10, high=150, size=3) if custom_PID is None else custom_PID
-            self.PID_MIMO = self.get_random_MIMO() if custom_PID_MIMO is None else custom_PID_MIMO
+        return self.PID.copy()
 
-        elif online is True:
-            # give some noise to baseline PID for better exploration chances
-            self.PID_MIMO = self.PID_MIMO_BASELINE.copy() + np.random.uniform(low=-5, high=5, size=6)
+    def reset(self, *, custom_PID: np.ndarray = None, online: bool = False) -> np.ndarray:
 
+        '''
+        Resets the PID coefficients and returns a copy of it
+            - resets the cart-pole environment to its randomized initial condition
+            - for online tuning, returns the baseline PID with some noise
+            - for offline tuning, returns a random PID vector from [5, 150]
+            - must be called every new episode 
+            - this allows the RL agent to explore the PID state space efficiently.
+            - set custom_PID to a custom PID vector to start searching from there.
+              
+        '''
+
+        # reset env
+        super().reset(seed=None)
+
+        # if no custom PID is given
+        if custom_PID is None:
+
+            # if online tuning, return baseline PID with noise
+            if online:
+                self.PID = self.PID_MIMO_BASELINE.copy() if self.control_mode=='pid2' else self.PID_SISO_BASELINE.copy()
+                noise = np.random.uniform(low=-5, high=5, size=self.PID.size)
+                self.PID = (self.PID + noise).copy()
+
+            # if offline tuning, return random PID
+            elif not online:
+                self.PID = np.random.randint(low=5, high=150, size=3) if self.control_mode=='pid1' else \
+                            np.random.randint(low=5, high=150, size=6) * np.array([1, -1, 1, -1, 1, -1])
+
+        # if custom pid is given        
+        elif custom_PID is not None:
+
+            # check custom_PID's type, size
+            assert isinstance(custom_PID, np.ndarray), f'expected PID vector to be of type np.ndarray but got {type(custom_PID)}'
+
+            if self.control_mode == 'pid1':
+                assert custom_PID.size == 3, f'expected PID vector of size 3 but got {custom_PID.size}'
+            elif self.control_mode=='pid2': 
+                assert custom_PID.size == 6, f'expected PID vector of size 6 but got {custom_PID.size}'
+                
+            self.PID = custom_PID.copy()
+
+        # reset other stuff
         self.time = 0
         self.prev_stability = None
 
         if self.render_mode == "human":
             self.render()
 
-        if MIMO is False: return (self.PID.copy(), {})
-        elif MIMO is True: return (self.PID_MIMO.copy(), {})
-        # returns a copy to prevent unseen side-effects.
+        # return a copy of the initialized PID vector
+        return self.PID.copy()
 
-    def iterreset(self, seed=None, options=None, custom=None):
-        super().reset(seed=seed)
-        low, high = utils.maybe_parse_reset_bounds(
-            options, -0.05, 0.05  # default low
-        )  # default high
+    def iterreset(self, custom: np.ndarray = None) -> None:
+
+        '''
+            - resets the cart-pole environment to its randomized initial condition
+            - also resets the PID calculation variales 
+            - must be called when switching to new PID values (that is, every time-step, and when calling 
+              get_bound_by_rollout() and restore_setup())
+
+        '''
+
+        super().reset(seed=None)
+
+        # get randomized initial env state
+        low, high = utils.maybe_parse_reset_bounds(None, -0.05, 0.05)
         self.stepstate = self.np_random.uniform(low=low, high=high, size=(4,)) if custom is None else custom
         self.steps_beyond_terminated = None
 
+        # reset PID variables
         self.integral = 0
         self.prev_err = 0
         self.prev_mv = 0
 
-        self.state = []
-        self.state.append(self.stepstate)
-  
-    def coefreset(
-        self,
-        divide,
-        *,
-        seed: Optional[int] = None,
-        options: Optional[dict] = None,
-    ):
-        super().reset(seed=seed)
-        # Note that if you use custom reset bounds, it may lead to out-of-bound
-        # state/observations.
-
-        self.stepstate = [0,0, 0.2 * (4.5 - divide) / 3.5,0]
-        self.steps_beyond_terminated = None
-
-        self.integral = 0
-        self.prev_err = 0
-
-        self.state = []
-        self.state.append(self.stepstate)
-
-        if self.render_mode == "human":
-            self.render()
-        return np.array(self.stepstate, dtype=np.float32), {}
+        return 
 
     def render(self):
         if self.render_mode is None:
