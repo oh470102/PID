@@ -347,7 +347,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             if self.render_mode == "human":
                 self.render() 
 
-    def step_online(self, action: np.ndarray) -> tuple
+    def step_online(self, action: np.ndarray) -> tuple:
 
         '''
         For online-tuning with real dynamics.
