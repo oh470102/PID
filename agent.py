@@ -202,7 +202,7 @@ class Agent:
         for ep in tqdm(range(self.NUM_EPISODES)):
 
             # reset and retrieve initial PID
-            state, _ = self.env.reset(MIMO=True, online=True) 
+            state = self.env.reset(online=True) 
             done, score = False, 0
 
             # episode main loop
@@ -234,7 +234,7 @@ class Agent:
                     self.learn()
 
             # decay epsilon if using e-greedy
-            self.reduce_epsilon(ep=ep)
+            # self.reduce_epsilon(ep=ep)
 
             # record score
             self.scores.append(score)
