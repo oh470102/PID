@@ -13,7 +13,8 @@ env = cppid.CartPoleEnv(render_mode='none', control_mode='pid2')
 
 # set PID
 PID = np.array([[-55, 134], [-40, 127], [-16, 14]])             # ISE = 609
-PID_baseline = np.array([[-57, 103], [-34, 87], [-13,  16]])   # baseline, ISE = 566
+# PID_baseline = np.array([[-57, 103], [-34, 87], [-13,  16]])   # baseline, ISE = 566
+PID_baseline = np.array([[-46, 130], [-25, 126], [-20, 16]])
 # PID = np.array([[-46, 140], [-144, 16], [-111, 146]])   # s = 0.20
 # PID = np.array([[-89, 133], [-137, 91], [-108, 83]])  # s = 0.40
 
@@ -66,7 +67,7 @@ axs[3].legend()
 
 # show plot
 plt.tight_layout()
-plt.savefig('ISE=566 and 609 with random resets.png')
+# plt.savefig('ISE=566 and 609 with random resets.png')
 plt.show()
 
 

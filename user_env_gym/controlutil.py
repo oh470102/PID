@@ -208,7 +208,7 @@ def calISE(traj, refsig):
      assert isinstance(traj, collections.abc.Sequence), "Trajectory is not a sequence type."
      assert len(traj) >= 1, "Trajectory is empty array."
      assert (isinstance(refsig, numbers.Real) and isinstance(traj[0], numbers.Real)) or (isinstance(refsig, collections.abc.Sequence) and isinstance(traj[0], collections.abc.Sequence)) \
-             or (isinstance(refsig, np.ndarray) and isinstance(traj[0], np.ndarray)), "refsig dimension doesn't match with trajectory"
+             or (isinstance(refsig, np.ndarray) and isinstance(traj[0], np.ndarray)), f"{type(traj[0])} has diff dimension from {type(refsig)}"
      
      if isinstance(refsig, collections.abc.Sequence) and len(refsig) <= 1:
           print("ErrorMsg : length of refsig must be longer than 1 if it is sequence type.")

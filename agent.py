@@ -6,7 +6,7 @@ import numpy as np, copy, random, matplotlib.pyplot as plt
 class Agent:
     def __init__(self, env):
         self.GAMMA = 0.99
-        self.NUM_EPISODES = 1_000
+        self.NUM_EPISODES = 5000
         self.SOLVED_SCORE = 200
 
         self.BATCH_SIZE = 200
@@ -17,23 +17,32 @@ class Agent:
         self.state_dim = 6
         self.action_dim = 729 # 3**6
 
-        self.actor = duel_model(self.state_dim, self.action_dim)
+        self.actor = Noisymodel(self.state_dim, self.action_dim)
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=1e-3)
         
         self.target_actor = copy.deepcopy(self.actor)
         self.target_actor.load_state_dict(self.actor.state_dict())
-        
-        self.replay = deque(maxlen=self.MEM_SIZE)
-        self.scores = []
 
         self.epsilon = 1.0
         self.epsilon_checked = False
+        
+        self.replay = deque(maxlen=self.MEM_SIZE)
+        self.scores = []
 
         self.P, self.I, self.D = [], [], []
 
         self.action_map = [[a,b,c,d,e,f] for a in [1, -1, 0] for b in [1, -1, 0] for c in [1, -1, 0] for d in [1, -1, 0] for e in [1, -1, 0] for f in [1, -1, 0]]
 
     def get_action(self, state):
+
+        q = self.actor(torch.from_numpy(state).float())
+        q_ = q.detach().numpy()
+
+        action = np.argmax(q_)
+
+        return action
+    
+    def get_action_epsilon(self, state):
 
         q = self.actor(torch.from_numpy(state).float())
         q_ = q.detach().numpy()
@@ -46,8 +55,6 @@ class Agent:
         return action
 
     def train(self, mp=False, save=False):
-
-        plt.ion()
 
         for ep in tqdm(range(self.NUM_EPISODES)):
 
@@ -114,16 +121,20 @@ class Agent:
                     torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 10.0)
                     self.actor_opt.step()
 
-            # reduce epsilon, print when it dies
-            if self.epsilon > 0.1: self.epsilon -= 2.2/self.NUM_EPISODES 
-            else:
-                if not self.epsilon_checked:
-                    print(f"EPSILON died on EP {ep}")
-                    self.epsilon_checked = True
+                    self.actor.reset_noise()
+                    self.target_actor.reset_noise()
 
             # comparison of initial & final PID with score
             # print(f"PID: {saved_init_state} to {state} with score {score:.2f}")
             # print(f"score: {score:.2f}")
+
+            # reduce epsilon, print when it dies
+            # if self.epsilon > 0.1: self.epsilon -= 2.2/self.NUM_EPISODES 
+            # else:
+            #     if not self.epsilon_checked:
+            #         print(f"EPSILON died on EP {ep}")
+            #         self.epsilon_checked = True
+
 
             # print & save score
             if mp: self.queue.put(score)
@@ -136,7 +147,6 @@ class Agent:
             torch.save(self.actor, f"{PATH}.pth")
 
         self.env.close()
-        plt.ioff()
 
         return self.scores
     
