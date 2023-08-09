@@ -147,6 +147,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         # for stability-wise guarantees
         self.lin_stability_threshold = 0.4 
         self.x_upper_bound, self.x_lower_bound, self.theta_upper_bound, self.theta_lower_bound, self.prev_ISE = self.get_bound_by_rollout()
+        print(f"Baseline ISE: {self.prev_ISE}")
         self.best_ISE = self.prev_ISE
 
         # Miscellaneous
