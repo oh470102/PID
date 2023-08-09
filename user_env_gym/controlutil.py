@@ -237,10 +237,17 @@ def calISE(traj, refsig):
                ISE_angle.append( (step[1] - refsig[1]) ** 2)
      
           # normalize errors for MIMO
+
           ISE_pos, ISE_angle = np.array(ISE_pos), np.array(ISE_angle)
-          ISE_pos = np.abs((ISE_pos - ISE_pos.mean()) / ISE_pos.std())
-          ISE_angle = np.abs((ISE_angle - ISE_angle.mean()) / ISE_angle.std())
-     
+          # ISE_pos = np.abs((ISE_pos - ISE_pos.mean()) / ISE_pos.std())
+          # ISE_angle = np.abs((ISE_angle - ISE_angle.mean()) / ISE_angle.std())
+          
+          # scaling
+          if np.max(ISE_pos) > np.max(ISE_angle):
+               ISE_angle = ISE_angle * (np.max(ISE_pos)/np.max(ISE_angle))
+          else:
+               ISE_pos = ISE_pos * (np.max(ISE_angle) / np.max(ISE_pos))
+
           return (ISE_pos.sum() + ISE_angle.sum())
 
 def calThreshold(trajlist):
