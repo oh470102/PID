@@ -37,7 +37,7 @@ class Agent:
     def __init__(self, env):
 
         # Epochs
-        self.NUM_EPISODES = 1000
+        self.NUM_EPISODES = 5000
 
         # Hyperparameters
         self.GAMMA = 0.99
