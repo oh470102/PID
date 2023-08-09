@@ -51,6 +51,54 @@ def sopdt_dss():
      
      return A, B, C, D, E
 
+def lin_stability_SISO(eng, p, i, d, A, B, C, D, E, mode = 0):
+     # p, i, d is pid coefficient
+     # A, B, C, D, E is descriptive state-space form
+     assert len(A) == len(A[0]) == len(B) == len(C), "Matrix size is not appropriate"
+
+     # descriptive state space form of PID
+     AP = [[1, 0, 0],
+          [0, 1, 0],
+          [0, 0, 0]]
+     BP = [[0],
+          [0],
+          [1]]
+     CP = [d, p, i]
+     DP = [0]
+     EP = [[0, 1, 0],
+          [0, 0, 1],
+          [0, 0, 1]]
+
+     sys = eng.dss(matlab.double(A),matlab.double(B),matlab.double(C),matlab.double(D), matlab.double(E))
+
+     S = eng.struct('type', '.', 'subs', 'InputName')
+     T = eng.struct('type', '.', 'subs', 'OutputName')
+     sys = eng.subsasgn(sys, S, 'u')
+     sys = eng.subsasgn(sys, T, 'y')
+
+     pid = eng.dss(matlab.double(AP),matlab.double(BP),matlab.double(CP),matlab.double(DP), matlab.double(EP))
+     pid = eng.subsasgn(pid, S, 'e')
+     pid = eng.subsasgn(pid, T, 'u')
+
+     sum = eng.sumblk('e = r - y')
+
+     CLTF = eng.connect(pid, sys, sum, 'r', 'y')
+     pole_list = eng.pole(CLTF)
+     
+     if mode == 0:
+          max_pl_real = pole_list[0][0].real
+
+          for pl in pole_list:
+               if pl[0].real > max_pl_real:
+                    max_pl_real = pl[0].real
+          
+          return max_pl_real
+     elif mode == 1:
+          criterion = 0
+          for pl in pole_list:
+               criterion += math.pow(math.e, pl[0].real)
+          return criterion
+     
 def lin_stab_td_SISO(eng, p, i, d, A, B, C, D, E, intd = 0, outtd = 0, mode = 0):
      # p, i, d is pid coefficient
      # A, B, C, D, E is descriptive state-space form
@@ -86,54 +134,6 @@ def lin_stab_td_SISO(eng, p, i, d, A, B, C, D, E, intd = 0, outtd = 0, mode = 0)
 
      CLTF = eng.connect(pid, sys, sum, 'r', 'y')
      CLTF = eng.pade(CLTF,5)
-     pole_list = eng.pole(CLTF)
-     
-     if mode == 0:
-          max_pl_real = pole_list[0][0].real
-
-          for pl in pole_list:
-               if pl[0].real > max_pl_real:
-                    max_pl_real = pl[0].real
-          
-          return max_pl_real
-     elif mode == 1:
-          criterion = 0
-          for pl in pole_list:
-               criterion += math.pow(math.e, pl[0].real)
-          return criterion
-
-def lin_stability_SISO(eng, p, i, d, A, B, C, D, E, mode = 0):
-     # p, i, d is pid coefficient
-     # A, B, C, D, E is descriptive state-space form
-     assert len(A) == len(A[0]) == len(B) == len(C), "Matrix size is not appropriate"
-
-     # descriptive state space form of PID
-     AP = [[1, 0, 0],
-          [0, 1, 0],
-          [0, 0, 0]]
-     BP = [[0],
-          [0],
-          [1]]
-     CP = [d, p, i]
-     DP = [0]
-     EP = [[0, 1, 0],
-          [0, 0, 1],
-          [0, 0, 1]]
-
-     sys = eng.dss(matlab.double(A),matlab.double(B),matlab.double(C),matlab.double(D), matlab.double(E))
-
-     S = eng.struct('type', '.', 'subs', 'InputName')
-     T = eng.struct('type', '.', 'subs', 'OutputName')
-     sys = eng.subsasgn(sys, S, 'u')
-     sys = eng.subsasgn(sys, T, 'y')
-
-     pid = eng.dss(matlab.double(AP),matlab.double(BP),matlab.double(CP),matlab.double(DP), matlab.double(EP))
-     pid = eng.subsasgn(pid, S, 'e')
-     pid = eng.subsasgn(pid, T, 'u')
-
-     sum = eng.sumblk('e = r - y')
-
-     CLTF = eng.connect(pid, sys, sum, 'r', 'y')
      pole_list = eng.pole(CLTF)
      
      if mode == 0:
@@ -271,7 +271,7 @@ def calISE(traj, refsig):
      assert isinstance(traj, collections.abc.Sequence), "Trajectory is not a sequence type."
      assert len(traj) >= 1, "Trajectory is empty array."
      assert (isinstance(refsig, numbers.Real) and isinstance(traj[0], numbers.Real)) or (isinstance(refsig, collections.abc.Sequence) and isinstance(traj[0], collections.abc.Sequence)) \
-             or (isinstance(refsig, np.ndarray) and isinstance(traj[0], np.ndarray)), f"{type(traj[0])} has diff dimension from {type(refsig)}"
+             or (isinstance(refsig, np.ndarray) and isinstance(traj[0], np.ndarray)), "refsig dimension doesn't match with trajectory"
      
      if isinstance(refsig, collections.abc.Sequence) and len(refsig) <= 1:
           print("ErrorMsg : length of refsig must be longer than 1 if it is sequence type.")
@@ -300,17 +300,10 @@ def calISE(traj, refsig):
                ISE_angle.append( (step[1] - refsig[1]) ** 2)
      
           # normalize errors for MIMO
-
           ISE_pos, ISE_angle = np.array(ISE_pos), np.array(ISE_angle)
-          # ISE_pos = np.abs((ISE_pos - ISE_pos.mean()) / ISE_pos.std())
-          # ISE_angle = np.abs((ISE_angle - ISE_angle.mean()) / ISE_angle.std())
-          
-          # scaling
-          if np.max(ISE_pos) > np.max(ISE_angle):
-               ISE_angle = ISE_angle * (np.max(ISE_pos)/np.max(ISE_angle))
-          else:
-               ISE_pos = ISE_pos * (np.max(ISE_angle) / np.max(ISE_pos))
-
+          ISE_pos = np.abs((ISE_pos - ISE_pos.mean()) / ISE_pos.std())
+          ISE_angle = np.abs((ISE_angle - ISE_angle.mean()) / ISE_angle.std())
+     
           return (ISE_pos.sum() + ISE_angle.sum())
 
 def calThreshold(trajlist):
