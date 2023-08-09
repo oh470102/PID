@@ -39,6 +39,69 @@ def cartpole_dss(g, l, m_p, m_c, is_siso):
      
      return A, B, C, D, E
 
+def sopdt_dss():
+     A = [[0, 1],
+          [-0.04, -0.4]]
+     B = [[0],
+          [0.3/25]]
+     C = [1, 0]
+     D = [0]
+     E = [[1, 0],
+          [0, 1]]
+     
+     return A, B, C, D, E
+
+def lin_stab_td_SISO(eng, p, i, d, A, B, C, D, E, intd = 0, outtd = 0, mode = 0):
+     # p, i, d is pid coefficient
+     # A, B, C, D, E is descriptive state-space form
+     # [5,5] order of pade approximant for time delay system
+     # intd : input time delay, outtd : output time delay
+     assert len(A) == len(A[0]) == len(B) == len(C), "Matrix size is not appropriate"
+
+     # descriptive state space form of PID
+     AP = [[1, 0, 0],
+          [0, 1, 0],
+          [0, 0, 0]]
+     BP = [[0],
+          [0],
+          [1]]
+     CP = [d, p, i]
+     DP = [0]
+     EP = [[0, 1, 0],
+          [0, 0, 1],
+          [0, 0, 1]]
+
+     sys = eng.dss(matlab.double(A),matlab.double(B),matlab.double(C),matlab.double(D), matlab.double(E), 'InputDelay', intd, 'OutputDelay', outtd)
+
+     S = eng.struct('type', '.', 'subs', 'InputName')
+     T = eng.struct('type', '.', 'subs', 'OutputName')
+     sys = eng.subsasgn(sys, S, 'u')
+     sys = eng.subsasgn(sys, T, 'y')
+
+     pid = eng.dss(matlab.double(AP),matlab.double(BP),matlab.double(CP),matlab.double(DP), matlab.double(EP))
+     pid = eng.subsasgn(pid, S, 'e')
+     pid = eng.subsasgn(pid, T, 'u')
+
+     sum = eng.sumblk('e = r - y')
+
+     CLTF = eng.connect(pid, sys, sum, 'r', 'y')
+     CLTF = eng.pade(CLTF,5)
+     pole_list = eng.pole(CLTF)
+     
+     if mode == 0:
+          max_pl_real = pole_list[0][0].real
+
+          for pl in pole_list:
+               if pl[0].real > max_pl_real:
+                    max_pl_real = pl[0].real
+          
+          return max_pl_real
+     elif mode == 1:
+          criterion = 0
+          for pl in pole_list:
+               criterion += math.pow(math.e, pl[0].real)
+          return criterion
+
 def lin_stability_SISO(eng, p, i, d, A, B, C, D, E, mode = 0):
      # p, i, d is pid coefficient
      # A, B, C, D, E is descriptive state-space form
