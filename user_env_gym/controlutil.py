@@ -300,7 +300,7 @@ def calISE(traj, refsig, ITSE: bool = False):
      # TODO: 고정 비례게수 찾기 with baseline PID.
      if SISO:
           ISE = []
-          for i, step in enumerate(traj):
+          for i, step in enumerate(traj, start=1):
                if not ITSE:
                     ISE.append((refsig - step)**2)
                elif ITSE:
@@ -320,21 +320,6 @@ def calISE(traj, refsig, ITSE: bool = False):
      
           return (ISE_pos.sum() + ISE_angle.sum())
      
-def calOtherFactors(traj, refsig):
-
-     max_point = np.max(traj)
-     rising_time = None
-
-
-     for i in range(0, len(traj)):
-          if abs(traj[i] - refsig) < 0.1:
-               rising_time = i
-               break
-
-     if rising_time==None: rising_time = 5000
-
-     return max_point, rising_time
-
 
 def calThreshold(trajlist):
      assert isinstance(trajlist, collections.abc.Sequence), "trajectory list should be a sequence"

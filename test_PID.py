@@ -57,7 +57,7 @@ _, _, _, _, lis3 = env.step(action=np.array([0,0,0]))
 env.reset()
 
 # PID 4, ours
-env.reset_PID(custom_PID=np.array([13.71445706 , 1.6324029 , 20.        ]))
+env.reset_PID(custom_PID=np.array([20.25064878,  4.33564473, 40.61529733]))
 _, _, _, _, lis4 = env.step(action=np.array([0,0,0]))
 env.reset()
 

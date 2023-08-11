@@ -37,7 +37,7 @@ class Agent:
     def __init__(self, env):
 
         # Epochs
-        self.NUM_EPISODES = 20
+        self.NUM_EPISODES = 200
 
         # Hyperparameters
         self.GAMMA = 0.99
@@ -204,7 +204,7 @@ class Agent:
         for ep in tqdm(range(self.NUM_EPISODES)):
 
             # print progress
-            print(f"--------------currently on ep {ep}---------------")
+            # print(f"--------------currently on ep {ep}---------------")
 
             # reset and retrieve initial PID
             state = self.env.reset_PID(online=True) 

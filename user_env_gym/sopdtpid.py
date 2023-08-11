@@ -42,8 +42,7 @@ class SOPDTenv():
         # PID stuff (for reward calculation)
         self.PID = None
         self.PID_last = None
-        self.PID_SISO_BASELINE = np.array([44.63750939  ,7.99516935, 76.35477421])
-
+        self.PID_SISO_BASELINE = np.array([16.62605434 , 3.3202569 , 35.7224133 ])
         # More PID stuff (for saving best-performers)
         self.best_stability = None
         self.prev_stability = None
@@ -52,7 +51,7 @@ class SOPDTenv():
         self.PID_BOUND = 100
 
         # for stability-wise guarantees
-        self.lin_stability_threshold = 0.1
+        self.lin_stability_threshold = 0.05
         self.y_upper_bound, self.y_lower_bound, self.prev_ISE = self.get_bound_by_rollout()
         print(f"Bound: {self.y_lower_bound, self.y_upper_bound} :: Baseline ISE: {self.prev_ISE}")
         self.best_ISE = self.prev_ISE
@@ -71,7 +70,7 @@ class SOPDTenv():
             P, I, D = tuple(map(float, list(self.PID)))
 
             A, B, C, DD, E = ctut.sopdt_dss()
-            stability = ctut.lin_stab_td_SISO(self.eng, P, I, D, A, B, C, DD, E)
+            stability = ctut.lin_stab_td_SISO(self.eng, P, I, D, A, B, C, DD, E, intd = 2)
 
             return -stability
 
@@ -126,7 +125,7 @@ class SOPDTenv():
             i += 1
             if i > 2_000: print("Fatal: restoration process failed by taking too long.")
 
-    def get_bound_by_rollout(self, generosity: float = 0.5) -> tuple:
+    def get_bound_by_rollout(self, generosity: float = 0.35) -> tuple:
 
         '''
         calculates upper and lower bounds of state variable(s) -> y
@@ -148,7 +147,7 @@ class SOPDTenv():
 
         # env loop
         # NOTE: we know baseline PID will not fail, so environment termination condition was not considered.
-        for i in range(5000):
+        for i in range(10000):
             
             # record current state variables (x, v, theta, w)
             y, y_dot = self.stepstate
@@ -178,10 +177,7 @@ class SOPDTenv():
         max_y = np.max(rollout_traj_y)
         y_upper_bound = max_y + generosity * (max_y - self.setpoint)
         y_lower_bound = self.setpoint - (y_upper_bound - self.setpoint)
-        baseline_ISE = ctut.calISE(output_list, self.setpoint)
-        baseline_maxpoint, baseline_risingtime = ctut.calOtherFactors(output_list, self.setpoint)
-
-        print(baseline_maxpoint, baseline_risingtime)
+        baseline_ISE = ctut.calISE(output_list, self.setpoint, ITSE=True)
 
         plt.plot(output_list)
         plt.grid()
@@ -330,7 +326,7 @@ class SOPDTenv():
         input_list, output_list = [], []
         reward = 0
 
-        for i in range(5000):
+        for i in range(10000):
             
             # calculate linear stability, just once prior to simulation
             if i == 0:
@@ -390,7 +386,7 @@ class SOPDTenv():
         
         # controller was stable, then calculate ISE improvements
         else:
-            curr_ISE = ctut.calISE(output_list, self.setpoint)
+            curr_ISE = ctut.calISE(output_list, self.setpoint, ITSE=True)
             # print(f"{curr_ISE} by {self.PID}")
 
             # print if new best ISE is found 
@@ -398,11 +394,11 @@ class SOPDTenv():
                 self.best_ISE = curr_ISE.copy() 
                 print(f"best ISE: {self.best_ISE:.2f} by {self.PID}")
             
-            reward = (self.prev_ISE - curr_ISE)/100 
+            reward = (self.prev_ISE - curr_ISE)/1e6
             self.prev_ISE = curr_ISE
 
         # episode ends after 50 PID updates
-        truncated = True if self.time >= 100 else False
+        truncated = True if self.time >= 50 else False
         self.time += 1       
 
         # terminated is always False
