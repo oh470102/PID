@@ -199,7 +199,7 @@ class SOPDTenv():
         input_list = []
         output_list = []
 
-        for i in range(10000):
+        for i in range(3000):
             y, y_dot = self.stepstate
 
             input = self.pidcontrol(self.setpoint - y)

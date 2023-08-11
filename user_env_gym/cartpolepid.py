@@ -10,6 +10,7 @@ Reference:
 
 import math
 from typing import Optional, Union
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy import integrate
 import gymnasium as gym
@@ -145,8 +146,9 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         self.best_ISE = None         
 
         # for stability-wise guarantees
-        self.lin_stability_threshold = 0.4 
-        self.x_upper_bound, self.x_lower_bound, self.theta_upper_bound, self.theta_lower_bound, self.prev_ISE = self.get_bound_by_rollout()
+        self.lin_stability_threshold = 0.4
+        a, b , self.x_upper_bound, self.x_lower_bound, self.theta_upper_bound, self.theta_lower_bound, self.prev_ISE = self.get_bound_by_rollout()
+
         print(f"Baseline ISE: {self.prev_ISE}")
         self.best_ISE = self.prev_ISE
 
@@ -182,6 +184,9 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
               [0, 1, 0, 0],
               [0, 0, 1, 0],
               [0, 0, 0, 1]]
+        
+        self.num_restoration_tried = 0
+        self.num_restored = 0
 
     def get_bound_by_rollout(self, generosity: float = 0.35) -> tuple:
 
@@ -226,18 +231,24 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             self.stepstate = (sol[1][0], sol[1][1], sol[1][2], sol[1][3])
         
         # calculate upper, lower bounds for position
+        save_traj_x = rollout_traj_x
         rollout_traj_x = np.array(rollout_traj_x[reached_setpoint_at[0]: ])
         max_x = np.max(rollout_traj_x)
         x_upper_bound = max_x + generosity * (max_x - self.desired_state[0])
-        x_lower_bound = self.desired_state[0] - (x_upper_bound - self.desired_state[0])
+
+        # TODO: Fix lower bound. Too strict!
+        x_lower_bound = self.desired_state[0] - 2 * (x_upper_bound - self.desired_state[0])
 
         # calculate upper, lower bounds for angle
+        save_traj_theta = rollout_traj_theta
         rollout_traj_theta = np.array(rollout_traj_theta[reached_setpoint_at[1]: ])
         max_theta = np.max(rollout_traj_theta)
         theta_upper_bound = max_theta + generosity * (max_theta - self.desired_state[2])
         theta_lower_bound = self.desired_state[2] - (theta_upper_bound - self.desired_state[2])
 
-        return x_upper_bound, x_lower_bound, theta_upper_bound, theta_lower_bound, ctut.calISE(full_traj, np.array([self.desired_state[0], self.desired_state[2]]))
+        print(f"low: {x_lower_bound}, high: {x_upper_bound}")
+
+        return save_traj_x, save_traj_theta, x_upper_bound, x_lower_bound, theta_upper_bound, theta_lower_bound, ctut.calISE(full_traj, np.array([self.desired_state[0], self.desired_state[2]]))
 
     def get_curr_stability(self) -> float:
 
@@ -293,6 +304,9 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         Baseline PID is used for this process.
         '''
 
+        # record how many times restoration was attempted
+        self.num_restoration_tried += 1
+
         # desired_state is now the initial condition (around [0,0,0,0])
         desired_state = np.array([0,0,0,0])
 
@@ -310,11 +324,15 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         # print("Restoration initiated...", end='')
 
+        # collect traj
+        x_list, theta_list = [], []
+
         # loop until initial condition restored
         while True:
 
             # retrieve current env state variables
             x, x_dot, theta, theta_dot = tuple(self.stepstate)
+            x_list.append(x); theta_list.append(theta)
 
             # calculate error, force
             error = desired_state - self.stepstate
@@ -348,6 +366,12 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             if self.render_mode == "human":
                 self.render() 
 
+        self.num_restored += 1
+
+        print(f"{self.num_restored} / {self.num_restoration_tried}")
+
+        return x_list, theta_list
+
     def step_online(self, action: np.ndarray) -> tuple:
 
         '''
@@ -369,7 +393,6 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         # reset env 
         self.iterreset(custom=np.array([0,0,0,0])) 
-
         # save current PID 
         self.PID_last = self.PID.copy()
 
@@ -401,32 +424,34 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             x_list.append(x); theta_list.append(theta); trajectory.append(self.stepstate)
 
             # check whether x, theta is near setpoint
-            if x_reached_setpoint is False and abs(x - self.desired_state[0]) < 0.05: x_reached_setpoint = True
-            if theta_reached_setpoint is False and abs(theta - self.desired_state[2]) < 0.05: theta_reached_setpoint = True
+            if x_reached_setpoint is False and abs(x - self.desired_state[0]) < 0.05: 
+                x_reached_setpoint = True
+            if theta_reached_setpoint is False and abs(theta - self.desired_state[2]) < 0.05: 
+                theta_reached_setpoint = True
 
             # if object reached setpoint once and its position gets out-of-bound, break immediately.
             if x_reached_setpoint and not self.x_lower_bound < x < self.x_upper_bound:
 
-                # print(f"{x:.3f} was out of bound (position)")
+                print(f"{x:.3f} was out of bound (position)")
 
                 # re-set PID to previous PID value
                 self.PID = self.PID_last.copy()
 
                 # restore original setup
-                self.restore_setup()
+                x_restore_traj, theta_restore_traj = self.restore_setup()
 
                 break
             
             # same for the object's angle
             if theta_reached_setpoint and not self.theta_lower_bound < theta < self.theta_upper_bound:
 
-                # print(f"{theta:.3f} was out of bound (angle).")
+                print(f"{theta:.3f} was out of bound (angle).")
 
                 # re-set PID to previous PID value
                 self.PID = self.PID_last.copy()
 
                 # restore original setup
-                self.restore_setup()
+                x_restore_traj, theta_restore_traj = self.restore_setup()
 
                 break
 

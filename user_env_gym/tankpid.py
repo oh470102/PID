@@ -150,7 +150,7 @@ class TankEnv():
 
         # env loop
         # NOTE: we know baseline PID will not fail, so environment termination condition was not considered.
-        for i in range(500):
+        for i in range(250):
             
             # record current state variables 
             x = self.stepstate
@@ -217,7 +217,7 @@ class TankEnv():
         input_list = []
         output_list = []
 
-        for i in range(500):
+        for i in range(250):
 
             # calculate linear stability, just once prior to simulation
             if i == 0:

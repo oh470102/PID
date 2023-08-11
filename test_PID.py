@@ -7,75 +7,32 @@ import seaborn as sns
 Test any PID coefficient!
 '''
 
-''' 
-Cart-pole 
 
-env = cppid.CartPoleEnv(render_mode='human', control_mode='pid2')
-env.reset(custom_PID=PID)
-env.iterreset(custom=np.array([0,0,0,0]))
-env.step_online(action=np.array([0,0,0,0,0,0]))
-'''
+# Cart-pole 
 
-'''
-Tank Env
-
-env = tpid.TankEnv()
+env = cppid.CartPoleEnv(render_mode='humaan', control_mode='pid2')
 
 # PID 1
-env.reset_PID(custom_PID=np.array([6.608, 80, 0]))
-_, _, _, _, lis1 = env.step_online(action=np.array([0,0,0]))
-env.reset()
-
-# PID 2
-env.reset_PID(custom_PID=np.array([38.52332521, 100,           1.35016392]))
-_, _, _, _, lis2 = env.step_online(action=np.array([0,0,0]))
-env.reset()
-
-# PID 3
-env.reset_PID(custom_PID=np.array([ 37.00028898, 100.   ,        0.        ]))
-_, _, _, _, lis3 = env.step_online(action=np.array([0,0,0]))
-env.reset()
-'''
+PID = np.array([-20, 106, -37, 136, -66, 129.]) # baseline
+env.reset(custom_PID=PID, online=True)
+x, theta, rx, rtheta = env.step_online(action=np.array([0,0,0,0,0,0]))
 
 
-# SOPDT
-env = spid.SOPDTenv()
+fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(10, 8))
+axes[0].plot([i for i in range(0, len(x))], x, label='random PID')
+axes[0].plot([i for i in range(len(x)-1, len(x) + len(rx)-1)], rx, label='Baseline PID')
+axes[0].set_title('Position Restoration Trajectory')
+axes[0].legend()
+axes[0].grid(True)
 
-# PID 1
-env.reset_PID(custom_PID=np.array([13.95, 1.885, 25.81]))
-_, _, _, _, lis1 = env.step(action=np.array([0,0,0]))
-env.reset()
+axes[1].plot([i for i in range (0, len(theta))], theta, label='random PID')
+axes[1].plot([i for i in range(len(theta)-1, len(theta) + len(rtheta)-1)], rtheta, label='Baseline PID')
+axes[1].set_title('Angle Restoration Trajectory')
+axes[1].legend()
+axes[1].grid(True)
 
-# PID 2
-env.reset_PID(custom_PID=np.array([16.51, 1.983, 21.43]))
-_, _, _, _, lis2 = env.step(action=np.array([0,0,0]))
-env.reset()
-
-# PID 3
-env.reset_PID(custom_PID=np.array([11.05, 0.612, 19.22]))
-_, _, _, _, lis3 = env.step(action=np.array([0,0,0]))
-env.reset()
-
-# PID 4, ours
-env.reset_PID(custom_PID=np.array([20.25064878,  4.33564473, 40.61529733]))
-_, _, _, _, lis4 = env.step(action=np.array([0,0,0]))
-env.reset()
-
-# PID 5
-env.reset_PID(custom_PID=np.array([6.98, 0.541, 12.91]))
-_, _, _, _, lis5 = env.step(action=np.array([0,0,0]))
-env.reset()
-
-
-plt.plot(lis1[1], label='Z-N')
-plt.plot(lis2[1], label='C-C')
-plt.plot(lis3[1], label='CHR 20%')
-plt.plot(lis4[1], label='Ours')
-plt.plot(lis5[1], label='CHR 0%')
-
-plt.legend()
-plt.grid()
-plt.savefig('./imgs/sopdt/traj.png')
+plt.suptitle('Cartpole Env. Restoration Trajectory')
+plt.savefig('./imgs/cartpole/restoration_trajectory.png')
 plt.show()
 
 

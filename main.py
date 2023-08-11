@@ -10,8 +10,8 @@ Create the cart-pole environment (custom)
         - 'pid1' for SISO (single-input single-output, can only handle the pole's angle)
         - 'pid2' for MIMO (multi-input multi-output, can handle both the pole's angle & position)
 '''
-# env = cppid.CartPoleEnv(render_mode='a', control_mode='pid2')
-env = spid.SOPDTenv()
+env = cppid.CartPoleEnv(render_mode='a', control_mode='pid2')
+# env = spid.SOPDTenv()
 # env = tpid.TankEnv()
 
 

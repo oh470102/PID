@@ -37,7 +37,7 @@ class Agent:
     def __init__(self, env):
 
         # Epochs
-        self.NUM_EPISODES = 200
+        self.NUM_EPISODES = 50
 
         # Hyperparameters
         self.GAMMA = 0.99
@@ -52,11 +52,11 @@ class Agent:
 
         # RL environment stuff
         self.env = env
-        self.state_dim = 3
-        self.action_dim = 3**3
+        self.state_dim = 6
+        self.action_dim = 3**6
         self.action_list = [1, -1, 0]
-        self.action_map = [[a, b, c] for a in self.action_list for b in self.action_list for c in self.action_list]
-        # self.action_map = [[a,b,c,d,e,f] for a in [1, -1, 0] for b in [1, -1, 0] for c in [1, -1, 0] for d in [1, -1, 0] for e in [1, -1, 0] for f in [1, -1, 0]]
+        # self.action_map = [[a, b, c] for a in self.action_list for b in self.action_list for c in self.action_list]
+        self.action_map = [[a,b,c,d,e,f] for a in [1, -1, 0] for b in [1, -1, 0] for c in [1, -1, 0] for d in [1, -1, 0] for e in [1, -1, 0] for f in [1, -1, 0]]
 
         # Neural network stuff
         self.actor = NoisyDQNModel(self.state_dim, self.action_dim)
@@ -207,7 +207,7 @@ class Agent:
             # print(f"--------------currently on ep {ep}---------------")
 
             # reset and retrieve initial PID
-            state = self.env.reset_PID(online=True) 
+            state = self.env.reset(online=True) 
             done, score = False, 0
 
             # episode main loop
