@@ -39,6 +39,15 @@ def cartpole_dss(g, l, m_p, m_c, is_siso):
      
      return A, B, C, D, E
 
+def tank_dss():
+     A = [-2.556]
+     B = [0.1]
+     C = [1]
+     D = [0]
+     E = [1]
+
+     return A, B, C, D, E
+
 def sopdt_dss():
      A = [[0, 1],
           [-0.04, -0.4]]
@@ -54,7 +63,7 @@ def sopdt_dss():
 def lin_stability_SISO(eng, p, i, d, A, B, C, D, E, mode = 0):
      # p, i, d is pid coefficient
      # A, B, C, D, E is descriptive state-space form
-     assert len(A) == len(A[0]) == len(B) == len(C), "Matrix size is not appropriate"
+     # assert len(A) == len(A[0]) == len(B) == len(C), "Matrix size is not appropriate"
 
      # descriptive state space form of PID
      AP = [[1, 0, 0],
@@ -265,10 +274,10 @@ def lin_stability_MIMO(eng, p, i, d, A, B, C, D, E):
 
      return max_pl_real
 
-def calISE(traj, refsig):
+def calISE(traj, refsig, ITSE: bool = False):
      # traj means trajectory, refsig means reference signal, delt means time interval
 
-     assert isinstance(traj, collections.abc.Sequence), "Trajectory is not a sequence type."
+     assert isinstance(traj, collections.abc.Sequence) or isinstance(traj, np.ndarray), "Trajectory is not a sequence type."
      assert len(traj) >= 1, "Trajectory is empty array."
      assert (isinstance(refsig, numbers.Real) and isinstance(traj[0], numbers.Real)) or (isinstance(refsig, collections.abc.Sequence) and isinstance(traj[0], collections.abc.Sequence)) \
              or (isinstance(refsig, np.ndarray) and isinstance(traj[0], np.ndarray)), "refsig dimension doesn't match with trajectory"
@@ -287,12 +296,17 @@ def calISE(traj, refsig):
      if isinstance(refsig, numbers.Real):
           SISO = True
 
-     # append errors
+     # append errors, return their sum
+     # TODO: 고정 비례게수 찾기 with baseline PID.
      if SISO:
           ISE = []
-          for step in traj:
-               ISE.append((refsig - step)**2)
-               return sum(ISE)
+          for i, step in enumerate(traj):
+               if not ITSE:
+                    ISE.append((refsig - step)**2)
+               elif ITSE:
+                    ISE.append(i*(refsig - step)**2)
+          return sum(ISE)
+     
      else:
           ISE_pos, ISE_angle = [], []
           for step in traj:
@@ -305,6 +319,22 @@ def calISE(traj, refsig):
           ISE_angle = np.abs((ISE_angle - ISE_angle.mean()) / ISE_angle.std())
      
           return (ISE_pos.sum() + ISE_angle.sum())
+     
+def calOtherFactors(traj, refsig):
+
+     max_point = np.max(traj)
+     rising_time = None
+
+
+     for i in range(0, len(traj)):
+          if abs(traj[i] - refsig) < 0.1:
+               rising_time = i
+               break
+
+     if rising_time==None: rising_time = 5000
+
+     return max_point, rising_time
+
 
 def calThreshold(trajlist):
      assert isinstance(trajlist, collections.abc.Sequence), "trajectory list should be a sequence"

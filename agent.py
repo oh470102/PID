@@ -37,7 +37,7 @@ class Agent:
     def __init__(self, env):
 
         # Epochs
-        self.NUM_EPISODES = 5000
+        self.NUM_EPISODES = 20
 
         # Hyperparameters
         self.GAMMA = 0.99
@@ -52,9 +52,11 @@ class Agent:
 
         # RL environment stuff
         self.env = env
-        self.state_dim = 6
-        self.action_dim = 729 # 3**6
-        self.action_map = [[a,b,c,d,e,f] for a in [1, -1, 0] for b in [1, -1, 0] for c in [1, -1, 0] for d in [1, -1, 0] for e in [1, -1, 0] for f in [1, -1, 0]]
+        self.state_dim = 3
+        self.action_dim = 3**3
+        self.action_list = [1, -1, 0]
+        self.action_map = [[a, b, c] for a in self.action_list for b in self.action_list for c in self.action_list]
+        # self.action_map = [[a,b,c,d,e,f] for a in [1, -1, 0] for b in [1, -1, 0] for c in [1, -1, 0] for d in [1, -1, 0] for e in [1, -1, 0] for f in [1, -1, 0]]
 
         # Neural network stuff
         self.actor = NoisyDQNModel(self.state_dim, self.action_dim)
@@ -201,8 +203,11 @@ class Agent:
 
         for ep in tqdm(range(self.NUM_EPISODES)):
 
+            # print progress
+            print(f"--------------currently on ep {ep}---------------")
+
             # reset and retrieve initial PID
-            state = self.env.reset(online=True) 
+            state = self.env.reset_PID(online=True) 
             done, score = False, 0
 
             # episode main loop
@@ -213,7 +218,7 @@ class Agent:
 
                 # get / process / add noise / clip action
                 action = self.get_action(state)
-                action_ = self.action_map[action] + np.random.normal(loc=0, scale=0.5, size=6)
+                action_ = self.action_map[action] + np.random.normal(loc=0, scale=0.1, size=self.state_dim)
                 action_ = action_.clip(-2, 2)
 
                 # take step in environment
@@ -245,7 +250,7 @@ class Agent:
             PATH = "./saved_models/" + datetime.datetime.now().strftime('%m-%d %H:%M')
             torch.save(self.actor, f"{PATH}.pth")
 
-        # close env, return all scores
-        self.env.close()
+        # close env, print best stability or ISE, return all scores
+        print(f"best stability: {self.env.best_stability}, best:ISE: {self.env.best_ISE}")
         return self.scores
     
